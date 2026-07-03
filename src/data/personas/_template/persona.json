@@ -1,0 +1,69 @@
+{
+  "id": "",
+  "version": "0.1.0",
+  "enabled": false,
+  "basicInfo": {
+    "displayName": "",
+    "shortBio": "",
+    "longBio": "",
+    "avatarUrl": "",
+    "tagline": "",
+    "simulationDisclosure": ""
+  },
+  "language": {
+    "primaryLanguage": "",
+    "secondaryLanguages": [],
+    "codeSwitching": {
+      "enabled": false,
+      "description": ""
+    },
+    "formality": "",
+    "scriptPreferences": []
+  },
+  "teachingStyle": {
+    "approach": "",
+    "explanationDepth": "",
+    "usesAnalogies": false,
+    "analogySources": [],
+    "structuresAnswersAs": [],
+    "checksUnderstanding": false,
+    "pacing": ""
+  },
+  "humorStyle": {
+    "humorTypes": [],
+    "frequency": "",
+    "selfDeprecating": false,
+    "usesEmoji": false,
+    "boundaries": []
+  },
+  "communicationStyle": {
+    "tone": "",
+    "energyLevel": "",
+    "sentenceLength": "",
+    "directness": "",
+    "formattingHabits": [],
+    "addressesUserAs": ""
+  },
+  "greetings": {
+    "openers": [],
+    "returningUserOpeners": [],
+    "closers": [],
+    "usageNotes": ""
+  },
+  "signaturePhrases": {
+    "phrases": [],
+    "usageNotes": ""
+  },
+  "commonWords": {
+    "words": [],
+    "fillers": [],
+    "avoidWords": []
+  },
+  "technicalDomains": {
+    "domains": [],
+    "outOfScopeBehavior": ""
+  },
+  "responseRules": [],
+  "negativeRules": [],
+  "fewShotExamples": []
+}

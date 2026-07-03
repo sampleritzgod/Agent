@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "source-document.schema.json",
+  "title": "SourceDocument",
+  "description": "Unified output contract for every ingestion collector, regardless of platform. Collectors fill everything except `cleaned`, which is produced by the cleaning stage.",
+  "type": "object",
+  "required": [
+    "id",
+    "schemaVersion",
+    "personaId",
+    "platform",
+    "sourceType",
+    "title",
+    "url",
+    "publishedAt",
+    "collectedAt",
+    "tags",
+    "raw",
+    "cleaned"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Deterministic document id: <platform>:<platform-native-id>. Stable across re-runs so re-ingestion upserts instead of duplicating."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "description": "Version of this schema the document conforms to.",
+      "const": "1.0.0"
+    },
+    "personaId": {
+      "type": "string",
+      "description": "Persona pack id this content belongs to (folder name in src/data/personas)."
+    },
+    "platform": {
+      "type": "string",
+      "description": "Source platform identifier.",
+      "enum": ["youtube", "website", "blog", "x", "linkedin", "github"]
+    },
+    "sourceType": {
+      "type": "string",
+      "description": "What kind of content this is on the platform, e.g. video-transcript, video-description, page, article, post, thread, repo-readme, profile."
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable title. For untitled content (tweets, posts) collectors derive a short excerpt-based title."
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical public URL of the original content."
+    },
+    "publishedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Original publication timestamp (ISO 8601). Null when the platform does not expose one."
+    },
+    "collectedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the collector fetched this document."
+    },
+    "language": {
+      "type": ["string", "null"],
+      "description": "BCP-47 language tag if detectable, e.g. en, hi, hi-Latn."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Platform tags/hashtags/categories plus any collector-assigned topic labels."
+    },
+    "author": {
+      "type": ["string", "null"],
+      "description": "Author handle or display name as shown on the platform."
+    },
+    "raw": {
+      "type": "object",
+      "description": "Content exactly as collected, before any cleaning.",
+      "required": ["content", "format"],
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Unmodified text payload (HTML, markdown, transcript with timestamps, JSON string, etc.)."
+        },
+        "format": {
+          "type": "string",
+          "description": "Format of raw.content.",
+          "enum": ["html", "markdown", "plaintext", "transcript", "json"]
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Platform-specific extras that don't fit the shared fields (view counts, likes, duration, repo stars, etc.). Free-form; never required downstream.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "cleaned": {
+      "type": "object",
+      "description": "Output of the cleaning/normalization stage. Collectors emit this as null-content placeholder; the cleaner fills it.",
+      "required": ["content"],
+      "properties": {
+        "content": {
+          "type": ["string", "null"],
+          "description": "Plain text: markup stripped, boilerplate removed, whitespace normalized, timestamps removed from transcripts."
+        },
+        "wordCount": {
+          "type": ["integer", "null"],
+          "description": "Word count of cleaned content."
+        },
+        "cleanedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "cleanerVersion": {
+          "type": ["string", "null"],
+          "description": "Version of the cleaning pipeline that produced this, for reprocessing decisions."
+        }
+      }
+    },
+    "contentHash": {
+      "type": ["string", "null"],
+      "description": "Hash of raw.content for change detection and dedup across re-runs."
+    }
+  },
+  "additionalProperties": false
+}
