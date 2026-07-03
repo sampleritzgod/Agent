@@ -1,3 +1,16 @@
+import {
+  fetchTranscript as fetchTranscriptFromYouTube,
+  listLanguages,
+  YoutubeTranscriptDisabledError,
+  YoutubeTranscriptNotAvailableError,
+  YoutubeTranscriptNotAvailableLanguageError,
+  YoutubeTranscriptVideoUnavailableError,
+  type CaptionTrackInfo,
+  type FetchParams,
+  type TranscriptConfig,
+  type TranscriptSegment as LibraryTranscriptSegment,
+} from "youtube-transcript-plus";
+
 import type {
   FetchTranscriptOptions,
   TranscriptSegment,
@@ -8,137 +21,226 @@ const WATCH_URL = "https://www.youtube.com/watch?v=";
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-interface CaptionTrack {
-  baseUrl?: string;
-  languageCode?: string;
-  kind?: string;
+function readEnv(name: string): string | undefined {
+  const runtime = globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtime.process?.env?.[name];
 }
 
-function decodeEntitiesOnce(text: string): string {
-  return text
-    .replace(/&#(\d+);/g, (_, code: string) =>
-      String.fromCharCode(Number.parseInt(code, 10)),
-    )
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, code: string) =>
-      String.fromCharCode(Number.parseInt(code, 16)),
-    )
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
-}
-
-// Caption XML is frequently double-encoded (e.g. `&amp;#39;`), so decode twice.
-function decodeEntities(text: string): string {
-  return decodeEntitiesOnce(decodeEntitiesOnce(text));
-}
-
-function parseTranscriptXml(xml: string): TranscriptSegment[] {
-  const segments: TranscriptSegment[] = [];
-  const pattern = /<text start="([\d.]+)" dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
-
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(xml)) !== null) {
-    const text = decodeEntities(match[3]).replace(/\s+/g, " ").trim();
-    if (!text) {
-      continue;
-    }
-    segments.push({
-      offset: Number.parseFloat(match[1]),
-      duration: Number.parseFloat(match[2]),
-      text,
-    });
+function isDebugEnabled(options: FetchTranscriptOptions): boolean {
+  if (options.debug !== undefined) {
+    return options.debug;
   }
-
-  return segments;
+  const flag = readEnv("TRANSCRIPT_DEBUG");
+  return flag === "1" || flag === "true";
 }
 
-function extractCaptionTracks(html: string): CaptionTrack[] {
-  const parts = html.split('"captions":');
-  if (parts.length <= 1) {
-    return [];
-  }
-
-  try {
-    const jsonBlock = parts[1].split(',"videoDetails')[0].replace(/\n/g, "");
-    const parsed = JSON.parse(jsonBlock) as {
-      playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] };
-    };
-    return parsed.playerCaptionsTracklistRenderer?.captionTracks ?? [];
-  } catch {
-    return [];
-  }
-}
-
-function pickTrack(tracks: CaptionTrack[], lang?: string): CaptionTrack | undefined {
-  if (lang) {
-    const exact = tracks.find((track) => track.languageCode === lang);
-    if (exact) {
-      return exact;
-    }
-    const prefix = tracks.find((track) => track.languageCode?.startsWith(lang));
-    if (prefix) {
-      return prefix;
-    }
-  }
-
-  return tracks[0];
+function debugLog(videoId: string, message: string): void {
+  console.log(`[transcript:${videoId}] ${message}`);
 }
 
 /**
- * Default transcript provider: scrapes the public watch page for caption tracks
- * and downloads the timed-text XML, preserving per-segment timestamps.
+ * Wrap the library's fetch hooks so we can (a) route through an injected
+ * `fetchImpl` for tests and (b) log every request endpoint + HTTP status when
+ * debugging. Returns `undefined` when neither injection nor debugging is needed
+ * so the library uses its own defaults.
+ */
+function buildFetchHooks(
+  videoId: string,
+  options: FetchTranscriptOptions,
+  debug: boolean,
+): Pick<TranscriptConfig, "videoFetch" | "playerFetch" | "transcriptFetch"> | undefined {
+  if (!options.fetchImpl && !debug) {
+    return undefined;
+  }
+
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const makeHook =
+    (label: string) =>
+    async (params: FetchParams): Promise<Response> => {
+      if (debug) {
+        debugLog(videoId, `${label} ${params.method ?? "GET"} ${params.url}`);
+      }
+      const response = await fetchImpl(params.url, {
+        method: params.method ?? "GET",
+        ...(params.body !== undefined ? { body: params.body } : {}),
+        headers: {
+          "user-agent": params.userAgent ?? USER_AGENT,
+          ...(params.headers ?? {}),
+        },
+        ...(params.signal ? { signal: params.signal } : {}),
+      });
+      if (debug) {
+        debugLog(
+          videoId,
+          `${label} responded HTTP ${response.status} ${response.statusText}`,
+        );
+      }
+      return response;
+    };
+
+  return {
+    videoFetch: makeHook("watch-page"),
+    playerFetch: makeHook("innertube-player"),
+    transcriptFetch: makeHook("transcript-endpoint"),
+  };
+}
+
+function toSegments(raw: LibraryTranscriptSegment[]): TranscriptSegment[] {
+  return raw
+    .map((segment) => ({
+      offset: segment.offset,
+      duration: segment.duration,
+      text: segment.text.replace(/\s+/g, " ").trim(),
+    }))
+    .filter((segment) => segment.text.length > 0);
+}
+
+/** Match the caption track that produced the fetched transcript, for metadata. */
+function matchTrack(
+  tracks: CaptionTrackInfo[],
+  languageCode: string | null,
+): CaptionTrackInfo | undefined {
+  if (!languageCode) {
+    return tracks[0];
+  }
+  return (
+    tracks.find((track) => track.languageCode === languageCode) ??
+    tracks.find((track) => track.languageCode.startsWith(languageCode)) ??
+    tracks[0]
+  );
+}
+
+/**
+ * Default transcript provider. Uses the maintained `youtube-transcript-plus`
+ * library, which retrieves captions via YouTube's InnerTube player API (the
+ * legacy watch-page timed-text scraping now returns empty bodies to
+ * server-side requests). Per-segment timestamps are preserved.
  *
- * Returns `null` when the video has no usable captions (so the caller can skip
- * it). Throws only on unexpected network/HTTP failures.
+ * Returns `null` when the video has no usable captions (captions disabled,
+ * none available, or none in the requested language), so the caller can skip
+ * it. Throws only on unexpected failures (network errors, rate limiting), which
+ * the downloader records as `failed` without aborting the batch.
  */
 export async function fetchYouTubeTranscript(
   videoId: string,
   options: FetchTranscriptOptions = {},
 ): Promise<VideoTranscript | null> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const headers = {
-    "user-agent": USER_AGENT,
-    "accept-language": options.lang ? `${options.lang},en;q=0.8` : "en",
+  const debug = isDebugEnabled(options);
+  const hooks = buildFetchHooks(videoId, options, debug);
+
+  const baseConfig: TranscriptConfig = {
+    userAgent: USER_AGENT,
+    ...(hooks ?? {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   };
 
-  const pageResponse = await fetchImpl(`${WATCH_URL}${videoId}`, {
-    headers,
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
-  if (!pageResponse.ok) {
-    throw new Error(
-      `Failed to load watch page for ${videoId} (${pageResponse.status}).`,
-    );
+  // Discover available tracks up front when debugging, and reuse them to
+  // populate language/auto-generated metadata.
+  let availableTracks: CaptionTrackInfo[] = [];
+  if (debug) {
+    try {
+      availableTracks = await listLanguages(videoId, baseConfig);
+      debugLog(
+        videoId,
+        `caption tracks found (${availableTracks.length}): ${
+          availableTracks
+            .map(
+              (track) =>
+                `${track.languageCode}${track.isAutoGenerated ? " (auto)" : ""}`,
+            )
+            .join(", ") || "none"
+        }`,
+      );
+    } catch (error) {
+      debugLog(
+        videoId,
+        `listLanguages failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
-  const html = await pageResponse.text();
-  const tracks = extractCaptionTracks(html);
-  const track = pickTrack(tracks, options.lang);
-  if (!track?.baseUrl) {
-    return null;
+  const fetchWith = async (
+    lang?: string,
+  ): Promise<LibraryTranscriptSegment[]> => {
+    const config: TranscriptConfig = {
+      ...baseConfig,
+      ...(lang ? { lang } : {}),
+    };
+    return (await fetchTranscriptFromYouTube(videoId, config)) as LibraryTranscriptSegment[];
+  };
+
+  let raw: LibraryTranscriptSegment[];
+  try {
+    if (debug && options.lang) {
+      debugLog(videoId, `requesting transcript language "${options.lang}"`);
+    }
+    raw = await fetchWith(options.lang);
+  } catch (error) {
+    // Missing/disabled captions or unavailable video → skip (return null).
+    if (
+      error instanceof YoutubeTranscriptDisabledError ||
+      error instanceof YoutubeTranscriptNotAvailableError ||
+      error instanceof YoutubeTranscriptVideoUnavailableError
+    ) {
+      if (debug) {
+        debugLog(videoId, `no transcript: ${error.message}`);
+      }
+      return null;
+    }
+
+    // Requested language unavailable → fall back to any available track.
+    if (error instanceof YoutubeTranscriptNotAvailableLanguageError) {
+      if (debug) {
+        debugLog(
+          videoId,
+          `language "${options.lang}" unavailable (have: ${error.availableLangs.join(
+            ", ",
+          )}); retrying with default track`,
+        );
+      }
+      try {
+        raw = await fetchWith(undefined);
+      } catch (fallbackError) {
+        if (
+          fallbackError instanceof YoutubeTranscriptDisabledError ||
+          fallbackError instanceof YoutubeTranscriptNotAvailableError ||
+          fallbackError instanceof YoutubeTranscriptVideoUnavailableError
+        ) {
+          return null;
+        }
+        throw fallbackError;
+      }
+    } else {
+      // Rate limiting, invalid id, network, etc. → real failure.
+      throw error;
+    }
   }
 
-  const xmlResponse = await fetchImpl(track.baseUrl, {
-    headers,
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
-  if (!xmlResponse.ok) {
-    throw new Error(
-      `Failed to load caption track for ${videoId} (${xmlResponse.status}).`,
-    );
-  }
-
-  const segments = parseTranscriptXml(await xmlResponse.text());
+  const segments = toSegments(raw);
   if (segments.length === 0) {
+    if (debug) {
+      debugLog(videoId, "transcript returned zero usable segments");
+    }
     return null;
+  }
+
+  const languageCode = raw[0]?.lang ?? options.lang ?? null;
+  const track = matchTrack(availableTracks, languageCode);
+
+  if (debug) {
+    debugLog(
+      videoId,
+      `resolved ${segments.length} segments; language=${languageCode ?? "unknown"}`,
+    );
   }
 
   return {
     videoId,
-    language: track.languageCode ?? null,
-    isAutoGenerated: track.kind !== undefined ? track.kind === "asr" : null,
+    language: languageCode,
+    isAutoGenerated: track ? track.isAutoGenerated : null,
     segments,
     text: segments.map((segment) => segment.text).join(" "),
     url: `${WATCH_URL}${videoId}`,

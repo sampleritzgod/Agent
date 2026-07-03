@@ -33,6 +33,14 @@ src/data/ingestion/normalized/*
 !src/data/ingestion/normalized/.gitkeep
 src/data/transcripts/*
 !src/data/transcripts/.gitkeep
+src/data/cleaned-transcripts/*
+!src/data/cleaned-transcripts/.gitkeep
+src/data/transliterated-transcripts/*
+!src/data/transliterated-transcripts/.gitkeep
+src/data/chunks/*
+!src/data/chunks/.gitkeep
+src/data/embeddings/*
+!src/data/embeddings/.gitkeep
 
 # Local tooling
 .DS_Store

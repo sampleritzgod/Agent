@@ -28,6 +28,7 @@ interface CliArgs {
   lang?: string;
   concurrency?: number;
   dataRoot?: string;
+  debug?: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -37,6 +38,7 @@ function parseArgs(argv: string[]): CliArgs {
   let lang: string | undefined;
   let concurrency: number | undefined;
   let dataRoot: string | undefined;
+  let debug = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -50,6 +52,8 @@ function parseArgs(argv: string[]): CliArgs {
       concurrency = Number.parseInt(argv[(i += 1)] ?? "", 10);
     } else if (arg === "--data-root") {
       dataRoot = argv[(i += 1)];
+    } else if (arg === "--debug") {
+      debug = true;
     } else {
       positionals.push(arg);
     }
@@ -58,7 +62,7 @@ function parseArgs(argv: string[]): CliArgs {
   const input = positionals[0];
   if (!input || !persona) {
     throw new Error(
-      "Usage: tsx scripts/download-transcripts.ts <input> --persona <id> [--maxVideos 20] [--lang en] [--concurrency 5] [--data-root path]",
+      "Usage: tsx scripts/download-transcripts.ts <input> --persona <id> [--maxVideos 20] [--lang en] [--concurrency 5] [--data-root path] [--debug]",
     );
   }
 
@@ -69,6 +73,7 @@ function parseArgs(argv: string[]): CliArgs {
     ...(lang ? { lang } : {}),
     ...(Number.isFinite(concurrency) ? { concurrency } : {}),
     ...(dataRoot ? { dataRoot } : {}),
+    ...(debug ? { debug } : {}),
   };
 }
 
@@ -121,6 +126,7 @@ async function main(): Promise<void> {
     ...(args.lang ? { lang: args.lang } : {}),
     ...(args.concurrency !== undefined ? { concurrency: args.concurrency } : {}),
     ...(args.dataRoot ? { dataRoot: args.dataRoot } : {}),
+    ...(args.debug ? { debug: args.debug } : {}),
   });
 
   console.log(

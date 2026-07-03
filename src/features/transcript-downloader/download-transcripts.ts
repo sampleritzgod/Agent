@@ -84,6 +84,7 @@ export async function downloadTranscripts(
     ...(options.lang ? { lang: options.lang } : {}),
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.debug !== undefined ? { debug: options.debug } : {}),
   };
 
   const processOne = async (videoId: string): Promise<TranscriptItemResult> => {

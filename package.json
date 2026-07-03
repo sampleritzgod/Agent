@@ -8,12 +8,17 @@
     "typecheck": "tsc --noEmit",
     "collect:youtube": "tsx --env-file=.env scripts/collect-youtube.ts",
     "download:transcripts": "tsx --env-file=.env scripts/download-transcripts.ts",
+    "clean:transcripts": "tsx --env-file=.env scripts/clean-transcripts.ts",
+    "transliterate:transcripts": "tsx --env-file=.env scripts/transliterate-transcripts.ts",
+    "generate:chunks": "tsx --env-file=.env scripts/generate-chunks.ts",
+    "generate:embeddings": "tsx --env-file=.env scripts/generate-embeddings.ts",
     "analyze:persona": "tsx --env-file=.env scripts/analyze-persona.ts"
   },
   "dependencies": {
     "next": "^15.3.3",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "youtube-transcript-plus": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",

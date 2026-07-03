@@ -27,6 +27,12 @@ export interface FetchTranscriptOptions {
   /** Injectable for tests; defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /**
+   * When true, log detailed diagnostics (available caption tracks, chosen
+   * language, request endpoints, and HTTP status). Falls back to the
+   * `TRANSCRIPT_DEBUG` env var when omitted.
+   */
+  debug?: boolean;
 }
 
 /**
@@ -89,4 +95,6 @@ export interface DownloadTranscriptsOptions {
   skipExisting?: boolean;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+  /** Log detailed transcript-retrieval diagnostics. See {@link FetchTranscriptOptions.debug}. */
+  debug?: boolean;
 }
