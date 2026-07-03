@@ -4,37 +4,63 @@ Production-ready architecture scaffold for an AI-powered persona chat website.
 
 This project is designed for simulated tech educator personas based only on public content. It must always present responses as AI-generated simulations and must never claim to be, represent, or speak on behalf of the real person.
 
-## Current Scope
+## Project Layout
 
-This repository currently contains architecture, folder structure, persona configuration utilities, and dependency planning.
+Code is organized **feature-first** under `src/features/`. Each feature owns its
+types, logic, and integrations in one place — no separate `domain/`,
+`application/`, or `infrastructure/` layers.
 
-Personas live in `src/data/personas/<id>/persona.json`. System prompts are built at runtime by `src/infrastructure/ai/prompts/build-system-prompt.ts`.
+```text
+src/
+  features/
+    personas/          persona.json loading, validation, config types
+    chat/              chat orchestration, memory, retrieval, prompt, OpenAI, HTTP
+    persona-analyzer/  transcript -> persona profile (OpenAI)
+    youtube-collector/ channel video metadata collection (YouTube Data API)
+  app/api/chat/        thin Next.js route delegating to the chat feature
+  data/                persona packs + local ingestion staging
+scripts/               operational CLI entry points
+```
 
-## YouTube Persona Collector
+Personas live in `src/data/personas/<id>/persona.json` and are loaded by
+`src/features/personas`. Chat system prompts are built at runtime by
+`src/features/chat/prompt-builder.ts`.
 
-Collects all public videos from a YouTube channel (metadata only — title, description, published date, duration, thumbnail, and video URL). It is fully decoupled from the AI system: no transcripts, no embeddings, no OpenAI.
+## Chat
 
-- Domain model: `src/domain/content-sources/channel-video.ts`
-- Port (interface): `src/application/ingestion/ports/channel-video-source.ts`
-- Use case: `src/application/ingestion/use-cases/collect-channel-videos.ts`
-- Adapter (YouTube Data API v3): `src/infrastructure/ingestion/collectors/youtube/`
+`POST /api/chat` streams a persona-styled reply (Server-Sent Events). The route
+in `src/app/api/chat/route.ts` delegates to `src/features/chat` (orchestrator,
+conversation memory, transcript retrieval, prompt builder, OpenAI Responses
+streaming client). Requires `OPENAI_API_KEY`.
+
+## YouTube Collector
+
+Collects all public videos from a YouTube channel (metadata only — title,
+description, published date, duration, thumbnail, and video URL). Independent of
+the AI system: no transcripts, no embeddings, no OpenAI.
+
+Feature module: `src/features/youtube-collector/`
+(`collectChannelVideos(channelUrl, options)`).
 
 Set `YOUTUBE_API_KEY` (see `.env.example`), then run:
 
 ```bash
-YOUTUBE_API_KEY=... tsx scripts/ingestion/collect-youtube.ts https://www.youtube.com/@chaiaurcode
+YOUTUBE_API_KEY=... tsx scripts/collect-youtube.ts https://www.youtube.com/@chaiaurcode
 ```
 
 ## Persona Analyzer
 
-Given cleaned transcript chunks from a single creator, generates a strongly typed persona profile (communication style only) via the OpenAI API and writes a single `persona.json`. It does not chat, answer questions, or do retrieval.
+Given cleaned transcript chunks from a single creator, generates a strongly typed
+persona profile (communication style only) via the OpenAI API and writes a single
+`persona.json`. It does not chat, answer questions, or do retrieval.
 
-Feature module: `src/features/persona-analyzer/` (`analyzePersona(chunks, options)` returns a typed `Persona`).
+Feature module: `src/features/persona-analyzer/`
+(`analyzePersona(chunks, options)` returns a typed `Persona`).
 
 Set `OPENAI_API_KEY` (optionally `OPENAI_CHAT_MODEL`), then run:
 
 ```bash
-OPENAI_API_KEY=... tsx scripts/persona/analyze-persona.ts ./transcripts --creator "@chaiaurcode" --out persona.json
+OPENAI_API_KEY=... tsx scripts/analyze-persona.ts ./transcripts --creator "@chaiaurcode" --out persona.json
 ```
 
 `<input>` is either a `.json` file (array of transcript strings) or a directory of `.txt`/`.md` transcript files.

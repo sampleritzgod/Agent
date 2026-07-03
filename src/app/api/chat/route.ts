@@ -1,4 +1,4 @@
-import { handleChatPost } from "@/server/api/chat/chat-route-handler";
+import { handleChatPost } from "@/features/chat";
 
 export const runtime = "nodejs";
 
