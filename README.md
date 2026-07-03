@@ -52,7 +52,7 @@ types, logic, and integrations in one place — no separate `domain/`,
 src/
   features/
     personas/          persona.json loading, validation, config types
-    chat/              chat orchestration, memory, retrieval, prompt, OpenAI, HTTP
+    chat/              ChatService: prompt builder + OpenAI + HTTP adapter
     persona-analyzer/  transcript -> persona profile (OpenAI)
     youtube-collector/ channel video metadata collection (YouTube Data API)
     transcript-downloader/ download + store video transcripts (no AI)
@@ -67,16 +67,44 @@ src/
 scripts/               operational CLI entry points
 ```
 
-Personas live in `src/data/personas/<id>/persona.json` and are loaded by
-`src/features/personas`. Chat system prompts are built at runtime by
-`src/features/chat/prompt-builder.ts`.
+Personas for chat are defined as markdown in `src/personas/<id>.system.md`.
+The prompt builder (`src/features/prompt-builder/`) loads the persona, relevant
+transcript chunks, and conversation history.
 
 ## Chat
 
-`POST /api/chat` streams a persona-styled reply (Server-Sent Events). The route
-in `src/app/api/chat/route.ts` delegates to `src/features/chat` (orchestrator,
-conversation memory, transcript retrieval, prompt builder, OpenAI Responses
-streaming client). Requires `OPENAI_API_KEY`.
+`POST /api/chat` returns a persona-styled JSON reply. The route in
+`src/app/api/chat/route.ts` is a thin adapter — it only parses the request,
+calls `ChatService`, and returns the response. All business logic lives in
+`src/features/chat/` (`chat-service.ts`, `chat-types.ts`).
+
+**Request:**
+
+```json
+{
+  "persona": "hitesh",
+  "message": "How does Redis caching work?",
+  "conversationHistory": [
+    { "role": "user", "content": "Hi" },
+    { "role": "assistant", "content": "Haan ji!" }
+  ]
+}
+```
+
+**Response:**
+
+```json
+{
+  "message": "...",
+  "usage": { "promptTokens": 100, "completionTokens": 50, "totalTokens": 150 },
+  "model": "gpt-5.5"
+}
+```
+
+Pipeline: user message → `buildPrompt` (persona `.md` + chunks + history) →
+OpenAI Chat Completions API → assistant reply. Requires `OPENAI_API_KEY` and
+`OPENAI_CHAT_MODEL` in `.env`. Optional: `OPENAI_CHAT_TEMPERATURE`,
+`OPENAI_CHAT_MAX_TOKENS`, `OPENAI_CHAT_MAX_HISTORY`, `OPENAI_CHAT_MAX_CONTEXT_CHUNKS`.
 
 ## YouTube Collector
 

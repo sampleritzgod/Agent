@@ -1,182 +1,91 @@
-import { PersonaManagerError } from "@/features/personas";
-
-import { createChatOrchestrator } from "./chat-service";
-import { createChatStreamResponse } from "./chat-stream";
-
-// --- Errors -----------------------------------------------------------------
+import { createChatService, getChatService } from "./chat-service";
+import type { ChatRequest, ChatResponse, ConversationTurn } from "./chat-types";
+import { ChatServiceError } from "./chat-types";
 
 export interface ApiErrorBody {
   error: {
     code: string;
     message: string;
     requestId: string;
-    details?: unknown;
   };
 }
 
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly details?: unknown,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+const MAX_MESSAGE_CHARS = 12_000;
+const PERSONA_PATTERN = /^[a-zA-Z0-9_-]{1,80}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNotFoundError(error: unknown): boolean {
-  return isRecord(error) && error.code === "ENOENT";
+function createRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
 }
 
-function normalizeError(error: unknown): ApiError {
-  if (error instanceof ApiError) {
-    return error;
-  }
-
-  if (error instanceof PersonaManagerError) {
-    if (error.code === "PERSONA_NOT_FOUND") {
-      return new ApiError(404, "PERSONA_NOT_FOUND", "Persona not found.");
-    }
-
-    return new ApiError(
-      500,
-      error.code,
-      "Persona configuration is invalid on the server.",
-      error.details,
-    );
-  }
-
-  if (isNotFoundError(error)) {
-    return new ApiError(404, "PERSONA_NOT_FOUND", "Persona not found.");
-  }
-
-  if (error instanceof Error && error.message.includes("is disabled")) {
-    return new ApiError(404, "PERSONA_NOT_FOUND", "Persona not found.");
-  }
-
-  if (error instanceof Error && error.message.includes("OPENAI_API_KEY")) {
-    return new ApiError(
-      500,
-      "OPENAI_CONFIG_ERROR",
-      "OpenAI is not configured on the server.",
-    );
-  }
-
-  return new ApiError(
-    500,
-    "INTERNAL_SERVER_ERROR",
-    "The chat request could not be completed.",
-  );
-}
-
-export function createJsonResponse(body: unknown, init: ResponseInit): Response {
-  const headers = new Headers(init.headers);
-  headers.set("content-type", "application/json; charset=utf-8");
-
+function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
-    ...init,
-    headers,
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
 
-export function createApiErrorResponse(error: unknown, requestId: string): Response {
-  const normalized = normalizeError(error);
-  const body: ApiErrorBody = {
-    error: {
-      code: normalized.code,
-      message: normalized.message,
-      requestId,
-      ...(normalized.details !== undefined ? { details: normalized.details } : {}),
-    },
-  };
-
-  if (normalized.status >= 500) {
+function errorResponse(error: ChatServiceError, requestId: string): Response {
+  if (error.status >= 500) {
     console.error(`[api:${requestId}]`, error);
   }
-
-  return createJsonResponse(body, { status: normalized.status });
+  const body: ApiErrorBody = {
+    error: { code: error.code, message: error.message, requestId },
+  };
+  return jsonResponse(body, error.status);
 }
 
-// --- Request parsing --------------------------------------------------------
-
-export interface ChatPostRequest {
-  personaId: string;
-  message: string;
-  conversationId?: string;
-  transcriptLimit?: number;
-}
-
-const MAX_MESSAGE_CHARS = 12_000;
-const PERSONA_ID_PATTERN = /^[a-zA-Z0-9_-]{1,80}$/;
-const CONVERSATION_ID_PATTERN = /^[a-zA-Z0-9_:-]{1,120}$/;
-
-function requireString(
-  value: unknown,
-  field: string,
-  options: { maxLength?: number; pattern?: RegExp } = {},
-): string {
-  if (typeof value !== "string") {
-    throw new ApiError(400, "INVALID_REQUEST", `"${field}" must be a string.`);
-  }
-
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new ApiError(400, "INVALID_REQUEST", `"${field}" is required.`);
-  }
-
-  if (options.maxLength !== undefined && trimmed.length > options.maxLength) {
-    throw new ApiError(400, "INVALID_REQUEST", `"${field}" is too long.`, {
-      maxLength: options.maxLength,
-    });
-  }
-
-  if (options.pattern && !options.pattern.test(trimmed)) {
-    throw new ApiError(400, "INVALID_REQUEST", `"${field}" has an invalid format.`);
-  }
-
-  return trimmed;
-}
-
-function optionalConversationId(value: unknown): string | undefined {
+function parseConversationHistory(value: unknown): ConversationTurn[] {
   if (value === undefined) {
-    return undefined;
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new ChatServiceError(
+      "INVALID_REQUEST",
+      "conversationHistory must be an array.",
+      400,
+    );
   }
 
-  return requireString(value, "conversationId", {
-    pattern: CONVERSATION_ID_PATTERN,
+  return value.map((item, index) => {
+    if (!isRecord(item)) {
+      throw new ChatServiceError(
+        "INVALID_REQUEST",
+        `conversationHistory[${index}] must be an object.`,
+        400,
+      );
+    }
+    const role = item.role;
+    const content = item.content;
+    if (role !== "user" && role !== "assistant") {
+      throw new ChatServiceError(
+        "INVALID_REQUEST",
+        `conversationHistory[${index}].role must be "user" or "assistant".`,
+        400,
+      );
+    }
+    if (typeof content !== "string" || !content.trim()) {
+      throw new ChatServiceError(
+        "INVALID_REQUEST",
+        `conversationHistory[${index}].content must be a non-empty string.`,
+        400,
+      );
+    }
+    return { role, content: content.trim() };
   });
 }
 
-function optionalTranscriptLimit(value: unknown): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 0 ||
-    value > 20
-  ) {
-    throw new ApiError(400, "INVALID_REQUEST", '"transcriptLimit" must be an integer from 0 to 20.');
-  }
-
-  return value;
-}
-
-export async function parseChatPostRequest(request: Request): Promise<ChatPostRequest> {
+/** Parse and validate the POST /api/chat JSON body. */
+export async function parseChatRequest(request: Request): Promise<ChatRequest> {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType && !contentType.toLowerCase().includes("application/json")) {
-    throw new ApiError(
-      415,
-      "UNSUPPORTED_MEDIA_TYPE",
+    throw new ChatServiceError(
+      "INVALID_REQUEST",
       "Content-Type must be application/json.",
+      415,
     );
   }
 
@@ -184,61 +93,68 @@ export async function parseChatPostRequest(request: Request): Promise<ChatPostRe
   try {
     body = await request.json();
   } catch {
-    throw new ApiError(400, "INVALID_JSON", "Request body must be valid JSON.");
+    throw new ChatServiceError("INVALID_REQUEST", "Request body must be valid JSON.", 400);
   }
 
   if (!isRecord(body)) {
-    throw new ApiError(400, "INVALID_REQUEST", "Request body must be a JSON object.");
+    throw new ChatServiceError("INVALID_REQUEST", "Request body must be a JSON object.", 400);
+  }
+
+  const personaRaw = body.persona ?? body.personaId;
+  if (typeof personaRaw !== "string" || !personaRaw.trim()) {
+    throw new ChatServiceError("INVALID_REQUEST", "persona is required.", 400);
+  }
+  const persona = personaRaw.trim();
+  if (!PERSONA_PATTERN.test(persona)) {
+    throw new ChatServiceError("INVALID_REQUEST", "persona has an invalid format.", 400);
+  }
+
+  if (typeof body.message !== "string" || !body.message.trim()) {
+    throw new ChatServiceError("INVALID_REQUEST", "message is required.", 400);
+  }
+  const message = body.message.trim();
+  if (message.length > MAX_MESSAGE_CHARS) {
+    throw new ChatServiceError("INVALID_REQUEST", "message is too long.", 400);
   }
 
   return {
-    personaId: requireString(body.personaId, "personaId", {
-      pattern: PERSONA_ID_PATTERN,
-    }),
-    message: requireString(body.message, "message", {
-      maxLength: MAX_MESSAGE_CHARS,
-    }),
-    conversationId: optionalConversationId(body.conversationId),
-    transcriptLimit: optionalTranscriptLimit(body.transcriptLimit),
+    persona,
+    message,
+    conversationHistory: parseConversationHistory(body.conversationHistory),
   };
 }
 
-// --- Route handler ----------------------------------------------------------
-
-function createRequestId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
+function normalizeError(error: unknown, requestId: string): Response {
+  if (error instanceof ChatServiceError) {
+    return errorResponse(error, requestId);
+  }
+  console.error(`[api:${requestId}]`, error);
+  return errorResponse(
+    new ChatServiceError(
+      "OPENAI_REQUEST_FAILED",
+      "The chat request could not be completed.",
+      500,
+      error,
+    ),
+    requestId,
+  );
 }
 
-function createConversationId(personaId: string): string {
-  return globalThis.crypto?.randomUUID?.() ?? `conv_${personaId}_${Date.now()}`;
-}
-
+/**
+ * Thin HTTP adapter for POST /api/chat. Parses the request, delegates to
+ * {@link ChatService}, and returns JSON — no business logic here.
+ */
 export async function handleChatPost(request: Request): Promise<Response> {
   const requestId = createRequestId();
 
   try {
-    const parsed = await parseChatPostRequest(request);
-    const conversationId = parsed.conversationId ?? createConversationId(parsed.personaId);
-    const orchestrator = createChatOrchestrator();
-    const result = await orchestrator.handle({
-      conversationId,
-      personaId: parsed.personaId,
-      userMessage: parsed.message,
-      transcriptLimit: parsed.transcriptLimit,
-      metadata: {
-        requestId,
-        endpoint: "POST /api/chat",
-      },
-      signal: request.signal,
-    });
-
-    return createChatStreamResponse({
-      requestId,
-      conversationId: result.conversationId,
-      personaId: result.personaId,
-      stream: result.stream,
-    });
+    const chatRequest = await parseChatRequest(request);
+    const service = getChatService();
+    const result: ChatResponse = await service.chat(chatRequest, request.signal);
+    return jsonResponse(result, 200);
   } catch (error) {
-    return createApiErrorResponse(error, requestId);
+    return normalizeError(error, requestId);
   }
 }
+
+export { createChatService, getChatService };
