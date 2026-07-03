@@ -92,6 +92,39 @@ function tokenize(value: string): string[] {
 }
 
 /**
+ * Very common English/Hinglish words that carry little topical signal. Removing
+ * them from the query keeps lexical scoring focused on the meaningful terms
+ * (e.g. "how does redis caching work" -> "redis caching"), so the transcript
+ * chunks that are actually on-topic rank higher.
+ */
+const QUERY_STOPWORDS = new Set([
+  "a", "an", "the", "is", "are", "am", "be", "been", "being", "was", "were",
+  "do", "does", "did", "doing", "done", "how", "what", "why", "when", "where",
+  "which", "who", "whom", "this", "that", "these", "those", "i", "you", "we",
+  "they", "he", "she", "it", "me", "my", "your", "our", "us", "to", "of", "in",
+  "on", "for", "and", "or", "but", "with", "about", "into", "from", "at", "by",
+  "as", "if", "then", "so", "can", "could", "should", "would", "will", "shall",
+  "may", "might", "must", "not", "no", "yes", "please", "tell", "explain",
+  "want", "need", "know", "give", "show", "help", "some", "any", "more", "most",
+  "just", "like", "get", "got", "kya", "hai", "kaise", "kaun", "kyun", "kyon",
+  "mujhe", "mera", "aap", "hum", "ho", "he", "ke", "ka", "ki", "ko", "aur",
+  "main", "mein", "se", "bhi", "toh", "kar", "karo", "karna",
+]);
+
+/**
+ * Meaningful query terms for lexical ranking: tokens with stopwords removed.
+ * Falls back to all tokens when everything was a stopword (e.g. "how are you"),
+ * so a query never ends up with zero terms while any content word remains.
+ */
+function queryTermsFrom(query: string): Set<string> {
+  const tokens = tokenize(query);
+  const meaningful = tokens.filter(
+    (token) => token.length > 1 && !QUERY_STOPWORDS.has(token),
+  );
+  return new Set(meaningful.length > 0 ? meaningful : tokens);
+}
+
+/**
  * Number of distinct query terms that appear in the chunk text. Deliberately
  * simple lexical scoring — this module is a placeholder retriever, kept
  * replaceable so real semantic/vector retrieval can drop in later without
@@ -159,7 +192,7 @@ export async function loadContext(
     }
   }
 
-  const queryTerms = new Set(tokenize(options.query ?? ""));
+  const queryTerms = queryTermsFrom(options.query ?? "");
   for (const chunk of chunks) {
     chunk.score = scoreChunk(chunk.text, queryTerms);
   }
