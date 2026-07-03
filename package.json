@@ -15,9 +15,13 @@
     "analyze:persona": "tsx --env-file=.env scripts/analyze-persona.ts"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
     "next": "^15.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
     "youtube-transcript-plus": "^2.0.0"
   },
   "devDependencies": {

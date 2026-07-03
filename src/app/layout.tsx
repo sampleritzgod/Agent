@@ -1,3 +1,6 @@
+import "./globals.css";
+import "highlight.js/styles/github-dark.css";
+
 export const metadata = {
   title: "AI Persona Chat",
   description: "Simulated tech educator personas based on public content.",
@@ -10,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ margin: 0, background: "#fff" }}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
