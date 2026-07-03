@@ -4,6 +4,40 @@ Production-ready architecture scaffold for an AI-powered persona chat website.
 
 This project is designed for simulated tech educator personas based only on public content. It must always present responses as AI-generated simulations and must never claim to be, represent, or speak on behalf of the real person.
 
+## Getting started
+
+`tsconfig.json` is only for TypeScript — it does **not** load API keys. Secrets live in a **`.env`** file at the project root (gitignored). Copy the template and fill in your keys:
+
+```bash
+cp .env.example .env
+```
+
+Then install dependencies and start the dev server:
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). The chat API is `POST /api/chat` and needs `OPENAI_API_KEY` in `.env`.
+
+### Environment variables (minimum to run features)
+
+| Variable | Needed for |
+|----------|------------|
+| `OPENAI_API_KEY` | Chat API (`/api/chat`), persona analyzer |
+| `YOUTUBE_API_KEY` | YouTube video collector script |
+
+Optional: `OPENAI_CHAT_MODEL`, `OPENAI_RESPONSES_MODEL`, conversation memory limits — see `.env.example`.
+
+### Scripts (read `.env` automatically)
+
+```bash
+npm run collect:youtube -- https://www.youtube.com/@chaiaurcode
+npm run download:transcripts -- src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush
+npm run analyze:persona -- ./transcripts --creator "@chaiaurcode" --out persona.json
+```
+
 ## Project Layout
 
 Code is organized **feature-first** under `src/features/`. Each feature owns its
