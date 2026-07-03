@@ -1,12 +1,16 @@
 import type { PersonaRepository } from "@/application/chat/ports/persona-repository";
 import type { PersonaConfig } from "@/domain/personas/persona-config";
 
-import { loadPersonaById } from "./load-persona";
+import { PersonaManager } from "./persona-manager";
 
 export class FilePersonaRepository implements PersonaRepository {
-  constructor(private readonly personasRoot: string) {}
+  private readonly manager: PersonaManager;
+
+  constructor(personasRoot: string) {
+    this.manager = new PersonaManager({ personasRoot });
+  }
 
   getPersonaById(personaId: string): Promise<PersonaConfig> {
-    return loadPersonaById(this.personasRoot, personaId);
+    return this.manager.getPersona(personaId);
   }
 }

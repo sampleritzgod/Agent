@@ -1,3 +1,5 @@
+import { PersonaManagerError } from "@/lib/personas/persona-errors";
+
 export interface ApiErrorBody {
   error: {
     code: string;
@@ -34,6 +36,19 @@ function isNotFoundError(error: unknown): boolean {
 function normalizeError(error: unknown): ApiError {
   if (error instanceof ApiError) {
     return error;
+  }
+
+  if (error instanceof PersonaManagerError) {
+    if (error.code === "PERSONA_NOT_FOUND") {
+      return new ApiError(404, "PERSONA_NOT_FOUND", "Persona not found.");
+    }
+
+    return new ApiError(
+      500,
+      error.code,
+      "Persona configuration is invalid on the server.",
+      error.details,
+    );
   }
 
   if (isNotFoundError(error)) {

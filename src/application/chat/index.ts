@@ -4,10 +4,6 @@ export type {
   ChatOrchestratorRequest,
   ChatOrchestratorResult,
 } from "./use-cases/chat-orchestrator";
-export type {
-  ConversationHistoryStore,
-  LoadConversationHistoryInput,
-} from "./ports/conversation-history-store";
 export type { PersonaRepository } from "./ports/persona-repository";
 export type {
   ChatModelError,

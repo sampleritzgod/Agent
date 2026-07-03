@@ -1,9 +1,10 @@
 import type { ConversationHistory, ConversationMessage } from "@/domain/conversations/conversation";
 import type { PersonaConfig, RetrievedTranscriptChunk } from "@/domain/personas/persona-config";
+import type { ConversationMemory } from "@/application/memory";
 
-import type { ConversationHistoryStore } from "../ports/conversation-history-store";
 import type { PersonaRepository } from "../ports/persona-repository";
 import type {
+  ChatModelMessage,
   ChatStreamEvent,
   ChatToolChoice,
   ChatToolDefinition,
@@ -14,7 +15,7 @@ import type { TranscriptRetriever } from "../ports/transcript-retriever";
 
 export interface ChatOrchestratorDependencies {
   personas: PersonaRepository;
-  conversationHistory: ConversationHistoryStore;
+  memory: ConversationMemory;
   transcripts: TranscriptRetriever;
   promptBuilder: SystemPromptBuilder;
   languageModel: StreamingLanguageModel;
@@ -26,6 +27,8 @@ export interface ChatOrchestratorRequest {
   userMessage: string;
   userId?: string;
   transcriptLimit?: number;
+  maxRecentMessages?: number;
+  maxContextTokens?: number;
   tools?: ChatToolDefinition[];
   toolChoice?: ChatToolChoice;
   metadata?: Record<string, string>;
@@ -73,7 +76,7 @@ function assertPersonaEnabled(persona: PersonaConfig): void {
 function buildModelMessages(
   historyMessages: ConversationMessage[],
   userMessage: string,
-): ConversationMessage[] {
+): ChatModelMessage[] {
   return [
     ...historyMessages.map((message) => ({
       role: message.role,
@@ -99,13 +102,27 @@ export class ChatOrchestrator {
     assertPersonaEnabled(persona);
 
     const history = normalizeHistory(
-      await this.dependencies.conversationHistory.loadHistory({
-        conversationId,
-        personaId,
-        ...(userId ? { userId } : {}),
+      await this.dependencies.memory.loadHistory({
+        sessionId: conversationId,
+        ...(request.maxRecentMessages !== undefined
+          ? { maxRecentMessages: request.maxRecentMessages }
+          : {}),
+        ...(request.maxContextTokens !== undefined
+          ? { maxContextTokens: request.maxContextTokens }
+          : {}),
         signal: request.signal,
       }),
     );
+
+    await this.dependencies.memory.appendMessage({
+      sessionId: conversationId,
+      role: "user",
+      content: userMessage,
+      metadata: {
+        personaId,
+        ...(userId ? { userId } : {}),
+      },
+    });
 
     const retrievedTranscriptChunks = await this.dependencies.transcripts.retrieve({
       conversationId,
@@ -126,7 +143,7 @@ export class ChatOrchestrator {
       currentUserMessage: userMessage,
     });
 
-    const stream = this.dependencies.languageModel.streamResponse({
+    const modelStream = this.dependencies.languageModel.streamResponse({
       systemPrompt,
       messages: buildModelMessages(history.messages, userMessage),
       ...(request.model ? { model: request.model } : {}),
@@ -146,8 +163,43 @@ export class ChatOrchestrator {
     return {
       conversationId,
       personaId,
-      stream,
+      stream: this.persistAssistantMessage(conversationId, personaId, modelStream),
       retrievedTranscriptChunks,
     };
+  }
+
+  private async *persistAssistantMessage(
+    sessionId: string,
+    personaId: string,
+    stream: AsyncIterable<ChatStreamEvent>,
+  ): AsyncIterable<ChatStreamEvent> {
+    const deltas: string[] = [];
+    let finalText = "";
+    let completed = false;
+    let failed = false;
+
+    for await (const event of stream) {
+      if (event.type === "text.delta") {
+        deltas.push(event.delta);
+      } else if (event.type === "text.done") {
+        finalText = event.text;
+      } else if (event.type === "response.completed") {
+        completed = true;
+      } else if (event.type === "response.failed") {
+        failed = true;
+      }
+
+      yield event;
+    }
+
+    const assistantContent = (finalText || deltas.join("")).trim();
+    if (completed && !failed && assistantContent) {
+      await this.dependencies.memory.appendMessage({
+        sessionId,
+        role: "assistant",
+        content: assistantContent,
+        metadata: { personaId },
+      });
+    }
   }
 }
