@@ -1,82 +1,257 @@
 # AI Persona Chat
 
-Production-ready architecture scaffold for an AI-powered persona chat website.
+An AI-powered educational chat application that simulates the public teaching styles of **Hitesh Choudhary** and **Piyush Garg**. Responses are generated from persona definitions, retrieved transcript context, and conversation history — always framed as AI simulations, never as the real creators.
 
-This project is designed for simulated tech educator personas based only on public content. It must always present responses as AI-generated simulations and must never claim to be, represent, or speak on behalf of the real person.
+---
 
-## Getting started
+## Project Overview
 
-`tsconfig.json` is only for TypeScript — it does **not** load API keys. Secrets live in a **`.env`** file at the project root (gitignored). Copy the template and fill in your keys:
+This project ingests public YouTube content from programming educators, processes transcripts into searchable chunks, and serves a chat interface where users can ask technical questions and receive answers in a selected educator's communication style.
+
+The system is built as a **feature-first** TypeScript application:
+
+1. **Data pipeline** — collect videos, download transcripts, clean text, and generate semantic chunks (stored locally under `src/data/`).
+2. **Prompt builder** — assemble persona system prompts, relevant transcript excerpts, and conversation history into a final LLM prompt.
+3. **Chat service** — validate requests, call the prompt builder, invoke the OpenAI Chat Completions API, and return structured responses.
+4. **Web UI** — persona selector, markdown-rendered chat thread, loading/error states, and session-scoped conversation history.
+
+All personas are simulated. The application must never claim to represent, speak for, or be endorsed by the real individuals. See [Persona Safety](docs/PERSONA_SAFETY.md).
+
+---
+
+## Features
+
+| Area | Capability |
+|------|------------|
+| **Personas** | Hitesh Choudhary (warm Hinglish mentor) and Piyush Garg (clear, practical English) |
+| **Persona switching** | Instant switch in the UI; each persona loads its own `.md` definition and transcript chunks |
+| **Transcript grounding** | Lexical retrieval of the most relevant local chunks per user message |
+| **Conversation memory** | Recent turns passed on each request and included in the prompt (session-scoped in the browser) |
+| **Markdown responses** | Code blocks with syntax highlighting, lists, and inline code in assistant messages |
+| **Data pipeline** | YouTube collection → transcript download → cleaning → chunking (CLI scripts) |
+| **Embeddings** | Optional local embedding generation for future semantic retrieval |
+| **Hindi transliteration** | Optional Devanagari → Latin Hinglish for cleaned Hindi transcripts |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | [Next.js 15](https://nextjs.org/) (App Router) |
+| Language | TypeScript (strict) |
+| UI | React 19, CSS modules via global stylesheet |
+| Markdown | `react-markdown`, `remark-gfm`, `rehype-highlight` |
+| LLM | OpenAI Chat Completions API |
+| Embeddings | OpenAI `text-embedding-3-small` (offline generation only) |
+| YouTube | YouTube Data API v3 + `youtube-transcript-plus` |
+| Runtime | Node.js (API routes use `runtime = "nodejs"`) |
+| Tooling | `tsx` for CLI scripts, `tsc` for type checking |
+
+---
+
+## Architecture
+
+The application follows a **thin route, thick feature** pattern. The Next.js API route delegates entirely to the chat feature; business logic never lives in route handlers.
+
+```text
+User (Browser)
+    │
+    ▼
+src/app/chat-app.tsx          Persona selector, message UI, history state
+    │
+    ▼ POST /api/chat
+src/app/api/chat/route.ts     Thin HTTP adapter
+    │
+    ▼
+src/features/chat/            ChatService, request parsing, error handling
+    │
+    ├──► src/features/prompt-builder/
+    │         loadPersona()      → src/personas/<id>.system.md
+    │         loadContext()      → src/data/chunks/<id>/
+    │         buildPrompt()      → system + history + user messages
+    │
+    ▼
+OpenAI Chat Completions API
+    │
+    ▼
+JSON response → UI (Markdown rendered)
+```
+
+**Data ingestion** (offline, CLI-driven) runs independently of the chat runtime:
+
+```text
+YouTube channel URL
+    → youtube-collector        (metadata JSON)
+    → transcript-downloader    (raw transcripts)
+    → transcript-cleaner       (cleaned transcripts)
+    → chunk-generator          (LLM-friendly chunks)
+    → embedding-generator      (optional vectors)
+```
+
+Detailed design notes: [Architecture](docs/ARCHITECTURE.md) · [Data Collection](docs/data-collection.md) · [Prompt Engineering](docs/prompt-engineering.md) · [Context Management](docs/context-management.md)
+
+---
+
+## Folder Structure
+
+```text
+Agent/
+├── src/
+│   ├── app/
+│   │   ├── api/chat/route.ts     Chat API endpoint
+│   │   ├── chat-app.tsx          Chat UI component
+│   │   ├── globals.css           Styles
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── features/
+│   │   ├── chat/                 Chat service + HTTP adapter
+│   │   ├── prompt-builder/       Persona + context + prompt assembly
+│   │   ├── youtube-collector/    Channel video metadata
+│   │   ├── transcript-downloader/
+│   │   ├── transcript-cleaner/
+│   │   ├── chunk-generator/
+│   │   ├── embedding-generator/
+│   │   ├── hindi-transliterator/
+│   │   ├── persona-analyzer/
+│   │   └── personas/             Persona JSON config loading
+│   ├── personas/
+│   │   ├── hitesh.system.md      Hitesh persona definition (chat)
+│   │   └── piyush.system.md      Piyush persona definition (chat)
+│   └── data/
+│       ├── ingestion/raw/        YouTube collection JSON
+│       ├── transcripts/<persona>/
+│       ├── cleaned-transcripts/<persona>/
+│       ├── chunks/<persona>/
+│       └── embeddings/<persona>/   (optional, not used in retrieval yet)
+├── scripts/                      CLI entry points for the data pipeline
+├── docs/                         Project documentation
+├── .env.example                  Environment variable template
+└── package.json
+```
+
+---
+
+## Installation
+
+**Prerequisites:** Node.js 18+ and npm.
 
 ```bash
+# Clone the repository and enter the project directory
+cd Agent
+
+# Install dependencies
+npm install
+
+# Create environment file from template
 cp .env.example .env
 ```
 
-Then install dependencies and start the dev server:
+Edit `.env` and set at minimum:
+
+- `OPENAI_API_KEY` — required for chat
+- `YOUTUBE_API_KEY` — required only for the YouTube collector script
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes (chat) | OpenAI API key |
+| `OPENAI_CHAT_MODEL` | No | Chat model (default: `gpt-5.5` or fallback `gpt-4o` in code) |
+| `OPENAI_CHAT_TEMPERATURE` | No | Sampling temperature (default `0.7`) |
+| `OPENAI_CHAT_MAX_TOKENS` | No | Max completion tokens (default `1024`) |
+| `OPENAI_CHAT_MAX_HISTORY` | No | Max history turns in prompt (default `10`) |
+| `OPENAI_CHAT_MAX_CONTEXT_CHUNKS` | No | Max transcript chunks per request (default `6`) |
+| `OPENAI_API_BASE_URL` | No | OpenAI API base URL |
+| `OPENAI_EMBEDDING_MODEL` | No | Embedding model for `generate:embeddings` |
+| `YOUTUBE_API_KEY` | Yes (collector) | YouTube Data API v3 key |
+| `YOUTUBE_API_BASE_URL` | No | YouTube API base URL |
+| `APP_ENV` | No | `development` or `production` |
+
+See `.env.example` for the full list including optional future infrastructure (Redis, Qdrant, PostgreSQL).
+
+> **Note:** `tsconfig.json` configures TypeScript only. Secrets are loaded from `.env` at runtime by Next.js and `tsx --env-file=.env` for scripts.
+
+---
+
+## Running the Project
+
+### Development server
 
 ```bash
-npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The chat API is `POST /api/chat` and needs `OPENAI_API_KEY` in `.env`.
+Open [http://localhost:3000](http://localhost:3000).
 
-### Environment variables (minimum to run features)
-
-| Variable | Needed for |
-|----------|------------|
-| `OPENAI_API_KEY` | Chat API (`/api/chat`), persona analyzer, embedding generator |
-| `YOUTUBE_API_KEY` | YouTube video collector script |
-
-Optional: `OPENAI_CHAT_MODEL`, `OPENAI_RESPONSES_MODEL`, `OPENAI_EMBEDDING_MODEL`, conversation memory limits — see `.env.example`.
-
-### Scripts (read `.env` automatically)
+### Production build
 
 ```bash
+npm run build
+npm start
+```
+
+### Type checking
+
+```bash
+npm run typecheck
+```
+
+### Data pipeline (offline)
+
+Run these in order when building or refreshing a persona dataset. See [Data Collection](docs/data-collection.md) for details.
+
+```bash
+# 1. Collect channel videos (example channels)
 npm run collect:youtube -- https://www.youtube.com/@chaiaurcode
-npm run download:transcripts -- src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush
+npm run collect:youtube -- https://www.youtube.com/@piyushgargdev
+
+# 2. Download transcripts (newest 20 videos by default)
+npm run download:transcripts -- src/data/ingestion/raw/youtube-<channelId>.json --persona hitesh
+npm run download:transcripts -- src/data/ingestion/raw/youtube-<channelId>.json --persona piyush
+
+# 3. Clean transcripts
+npm run clean:transcripts -- --persona hitesh
 npm run clean:transcripts -- --persona piyush
-npm run transliterate:transcripts -- --persona piyush
+
+# 4. Generate chunks
+npm run generate:chunks -- --persona hitesh
 npm run generate:chunks -- --persona piyush
-npm run generate:embeddings -- --persona piyush
+
+# Optional: embeddings, transliteration, persona analysis
+npm run generate:embeddings -- --persona hitesh
+npm run transliterate:transcripts -- --persona hitesh
 npm run analyze:persona -- ./transcripts --creator "@chaiaurcode" --out persona.json
 ```
 
-## Project Layout
+---
 
-Code is organized **feature-first** under `src/features/`. Each feature owns its
-types, logic, and integrations in one place — no separate `domain/`,
-`application/`, or `infrastructure/` layers.
+## Persona Switching
 
-```text
-src/
-  features/
-    personas/          persona.json loading, validation, config types
-    chat/              ChatService: prompt builder + OpenAI + HTTP adapter
-    persona-analyzer/  transcript -> persona profile (OpenAI)
-    youtube-collector/ channel video metadata collection (YouTube Data API)
-    transcript-downloader/ download + store video transcripts (no AI)
-    transcript-cleaner/    clean raw transcripts into high-quality text (no AI)
-    hindi-transliterator/  Devanagari -> Latin-script Hinglish (no AI, no translation)
-    chunk-generator/       clean transcripts -> ~500-800 token chunks (no AI)
-    embedding-generator/   chunks -> OpenAI embeddings stored locally
-    prompt-builder/        persona .md + chunks + history -> final LLM prompt
-  app/api/chat/        thin Next.js route delegating to the chat feature
-  personas/            persona definitions as markdown (<persona>.system.md)
-  data/                persona packs + local ingestion staging
-scripts/               operational CLI entry points
-```
+The chat UI exposes two personas:
 
-Personas for chat are defined as markdown in `src/personas/<id>.system.md`.
-The prompt builder (`src/features/prompt-builder/`) loads the persona, relevant
-transcript chunks, and conversation history.
+| Persona | Style | Primary topics |
+|---------|-------|----------------|
+| **Hitesh Choudhary** | Warm Hinglish, mentor-to-friend, analogy-driven | Full-stack, DevOps, JavaScript, career guidance |
+| **Piyush Garg** | Clear English, mental-model-first, project-driven | React, Node.js, APIs, system design |
 
-## Chat
+**How switching works:**
 
-`POST /api/chat` returns a persona-styled JSON reply. The route in
-`src/app/api/chat/route.ts` is a thin adapter — it only parses the request,
-calls `ChatService`, and returns the response. All business logic lives in
-`src/features/chat/` (`chat-service.ts`, `chat-types.ts`).
+1. The user selects a persona card in the header.
+2. The UI clears the current conversation (no cross-persona history leak).
+3. Each `POST /api/chat` request sends `{ persona, message, conversationHistory }`.
+4. The server loads `src/personas/<persona>.system.md` and chunks from `src/data/chunks/<persona>/`.
+5. The model responds in the selected style.
+
+Persona definitions live in markdown files and are independent of application code. Adding a persona is primarily a matter of adding a new `<id>.system.md` file and a corresponding dataset.
+
+---
+
+## Chat API
+
+**Endpoint:** `POST /api/chat`
 
 **Request:**
 
@@ -96,269 +271,59 @@ calls `ChatService`, and returns the response. All business logic lives in
 ```json
 {
   "message": "...",
-  "usage": { "promptTokens": 100, "completionTokens": 50, "totalTokens": 150 },
+  "usage": {
+    "promptTokens": 100,
+    "completionTokens": 50,
+    "totalTokens": 150
+  },
   "model": "gpt-5.5"
 }
 ```
 
-Pipeline: user message → `buildPrompt` (persona `.md` + chunks + history) →
-OpenAI Chat Completions API → assistant reply. Requires `OPENAI_API_KEY` and
-`OPENAI_CHAT_MODEL` in `.env`. Optional: `OPENAI_CHAT_TEMPERATURE`,
-`OPENAI_CHAT_MAX_TOKENS`, `OPENAI_CHAT_MAX_HISTORY`, `OPENAI_CHAT_MAX_CONTEXT_CHUNKS`.
+---
 
-## YouTube Collector
+## Screenshots
 
-Collects all public videos from a YouTube channel (metadata only — title,
-description, published date, duration, thumbnail, and video URL). Independent of
-the AI system: no transcripts, no embeddings, no OpenAI.
+> Placeholder — add screenshots before final submission.
 
-Feature module: `src/features/youtube-collector/`
-(`collectChannelVideos(channelUrl, options)`).
+| Screenshot | Description |
+|--------------|-------------|
+| `docs/screenshots/home-desktop.png` | Desktop chat with persona selector |
+| `docs/screenshots/hitesh-conversation.png` | Hitesh answering a backend question |
+| `docs/screenshots/piyush-conversation.png` | Piyush answering a frontend question |
+| `docs/screenshots/mobile-view.png` | Responsive mobile layout |
+| `docs/screenshots/error-retry.png` | Error state with retry button |
 
-Set `YOUTUBE_API_KEY` (see `.env.example`), then run:
+To capture: run `npm run dev`, interact with the app, and save images under `docs/screenshots/`.
 
-```bash
-YOUTUBE_API_KEY=... tsx scripts/collect-youtube.ts https://www.youtube.com/@chaiaurcode
-```
+---
 
-## Transcript Downloader
+## Future Improvements
 
-Downloads transcripts for collected YouTube videos and stores each as
-`src/data/transcripts/<persona>/<videoId>.json`, preserving per-segment
-timestamps. Batch-processed, resumable (skips already-downloaded files), and
-resilient: videos without transcripts are skipped and unexpected errors are
-recorded per-video without aborting the run. No LLM, embeddings, or analysis.
+- **Semantic retrieval** — use locally generated embeddings with vector search instead of lexical chunk ranking
+- **Streaming responses** — server-sent events for token-by-token display
+- **Persistent sessions** — Redis or PostgreSQL-backed conversation memory
+- **Expanded datasets** — more videos per persona, periodic re-ingestion
+- **Automated tests** — unit tests for prompt builder and integration tests for the chat API
+- **Rate limiting and auth** — production hardening for public deployment
+- **Observability** — structured logging and OpenTelemetry tracing
 
-Feature module: `src/features/transcript-downloader/`
-(`downloadTranscripts({ persona, videoIds, maxVideos, ... })` returns a summary
-of processed / skipped / failed videos). The default provider retrieves captions
-via YouTube's InnerTube player API using the maintained
-[`youtube-transcript-plus`](https://www.npmjs.com/package/youtube-transcript-plus)
-library (the legacy watch-page timed-text scraping now returns empty responses to
-server-side requests). A custom `provider` can still be injected.
+---
 
-Videos are sampled **newest first** and capped by `maxVideos` (default **20**),
-which is enough for persona generation — pass a larger number to process more.
+## Documentation Index
 
-```bash
-npm run download:transcripts -- src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush --maxVideos 20
-```
+| Document | Description |
+|----------|-------------|
+| [Data Collection](docs/data-collection.md) | YouTube ingestion through chunk generation |
+| [Prompt Engineering](docs/prompt-engineering.md) | Persona prompts, context usage, consistency |
+| [Context Management](docs/context-management.md) | Chunk selection, history, prompt assembly |
+| [Sample Conversations](docs/sample-conversations.md) | Example dialogues for both personas |
+| [Architecture](docs/ARCHITECTURE.md) | Design principles and feature responsibilities |
+| [Persona Safety](docs/PERSONA_SAFETY.md) | Simulation framing and content policy |
+| [Dependencies](docs/DEPENDENCIES.md) | External services and packages |
 
-`<input>` is a JSON file that is either an array of video id strings or a
-`ChannelVideoCollection` (the output of `scripts/collect-youtube.ts`). Collections
-are ordered by publish date (newest first) before the cap is applied.
+---
 
-Add `--debug` (or set `TRANSCRIPT_DEBUG=1`) to log the caption tracks found, the
-chosen language, the request endpoints, and the HTTP responses for each video:
+## License
 
-```bash
-npm run download:transcripts -- src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush --debug
-```
-
-## Transcript Cleaner
-
-Transforms raw transcripts into clean, high-quality text for persona analysis and
-RAG, **preserving per-segment timestamps**. Removes non-speech cues (`[Music]`,
-`[Applause]`, `[Laughter]`), empty and consecutive-duplicate segments, URLs,
-social handles, and like/share/subscribe & promotional boilerplate; normalizes
-whitespace, HTML entities, Unicode, and punctuation. It never translates — Hindi
-is preserved exactly and English technical terms are kept as-is — and greetings,
-humor, audience interaction, teaching style, storytelling, and signature phrases
-are retained. No OpenAI, embeddings, or persona generation.
-
-Feature module: `src/features/transcript-cleaner/` — `cleanTranscript(raw)`
-(pure, one transcript) and `cleanPersonaTranscripts({ persona, ... })` (batch).
-Cleaned files are written to `src/data/cleaned-transcripts/<persona>/<videoId>.json`.
-
-```bash
-npm run clean:transcripts -- --persona hitesh
-```
-
-Reads raw transcripts from `src/data/transcripts/<persona>/` by default (override
-with `--source <dir>`); pass `--overwrite` to re-clean existing files.
-
-## Hindi Transliterator
-
-Converts Devanagari Hindi transcripts into **Latin-script Hinglish**,
-**transliterating only — never translating** (`हां जी कैसे हो?` → `Haan ji kaise
-ho?`). The rule-based engine handles conjuncts, matras, anusvara/visarga, and
-Hindi **schwa deletion** (`करके` → `karke`, `नमस्ते` → `namaste`) with no
-tokenizer, OpenAI, or embeddings. English text passes through untouched, and a
-technical-term dictionary keeps product/library names canonical — **Spring Boot,
-React, Node.js, Redis, Docker, Kafka** (extendable via `technicalTerms`).
-
-Output mirrors the cleaned transcript, **preserving timestamps** and, per
-segment and for the full text, both `originalText` and `transliteratedText`.
-
-Feature module: `src/features/hindi-transliterator/` — `transliterateHindi(text)`
-(string), `transliterateTranscript(clean)` (one transcript), and
-`transliteratePersonaTranscripts({ persona, ... })` (batch). Results are written to
-`src/data/transliterated-transcripts/<persona>/<videoId>.json`.
-
-```bash
-npm run transliterate:transcripts -- --persona hitesh
-```
-
-Reads cleaned transcripts from `src/data/cleaned-transcripts/<persona>/` by
-default (override with `--source <dir>`); pass `--overwrite` to regenerate.
-
-## Chunk Generator
-
-Converts cleaned transcripts into LLM-friendly chunks of **~500–800 tokens**,
-**never splitting in the middle of a sentence** and **preserving timestamps and
-context**. Each chunk carries `videoId`, `persona`, `language`, and the
-`startTime`/`endTime` of the segments it spans. Token counts use a
-dependency-free heuristic (~4 characters per token) — no tokenizer, OpenAI,
-embeddings, or persona generation is involved.
-
-Feature module: `src/features/chunk-generator/` — `chunkTranscript(clean, { persona })`
-(pure, one transcript) and `generatePersonaChunks({ persona, ... })` (batch).
-Each chunk is written to `src/data/chunks/<persona>/<videoId>/<chunkId>.json`:
-
-```json
-{
-  "chunkId": "FZjJVuHWOIw-0000",
-  "videoId": "FZjJVuHWOIw",
-  "persona": "hitesh",
-  "language": "hi",
-  "startTime": 0.4,
-  "endTime": 175.84,
-  "text": "...",
-  "segmentCount": 83,
-  "estimatedTokens": 793
-}
-```
-
-```bash
-npm run generate:chunks -- --persona hitesh
-```
-
-Reads cleaned transcripts from `src/data/cleaned-transcripts/<persona>/` by
-default (override with `--source <dir>`); tune bounds with `--min 500 --max 800`
-and pass `--overwrite` to regenerate existing chunks. A single sentence longer
-than the max budget becomes its own over-sized chunk rather than being split.
-By default existing chunk directories are left untouched — the run reports them
-as already chunked and reminds you to pass `--overwrite`.
-
-Add `--debug` (or set `CHUNK_DEBUG=1`) to log per-file diagnostics: the
-transcript file loaded, segment/sentence counts, estimated token totals, each
-chunk boundary (id, start/end time, segments, tokens), and the reason a
-transcript produces no chunks.
-
-## Embedding Generator
-
-Generates OpenAI embeddings (`text-embedding-3-small`, 1536 dims) for every
-transcript chunk and stores them locally — **no retrieval, vector DB, or chat**.
-Reads chunks from `src/data/chunks/<persona>/<videoId>/` and the API key from
-`.env` (`OPENAI_API_KEY`), writing one file per chunk to
-`src/data/embeddings/<persona>/<videoId>/<chunkId>.json`:
-
-```json
-{
-  "chunkId": "FZjJVuHWOIw-0000",
-  "videoId": "FZjJVuHWOIw",
-  "persona": "hitesh",
-  "text": "...",
-  "embeddingModel": "text-embedding-3-small",
-  "dimensions": 1536,
-  "vector": [0.0123, -0.0456, "..."],
-  "metadata": {
-    "language": "hi",
-    "startTime": 0.4,
-    "endTime": 175.84,
-    "estimatedTokens": 793
-  }
-}
-```
-
-Feature module: `src/features/embedding-generator/` — `embedText(text)` (single
-vector) and `generatePersonaEmbeddings({ persona, ... })` (batch). Existing
-embeddings are skipped unless `--overwrite` is passed, and a single chunk failing
-(bad file or API error) is recorded without aborting the run. The summary reports
-`processed`, `skipped`, `failed`, and `generated`.
-
-```bash
-npm run generate:embeddings -- --persona hitesh
-```
-
-Options: `--overwrite` (re-embed existing), `--debug` (or `EMBED_DEBUG=1`) to log
-chunks loaded, each embedding request started / generated / saved, skipped
-existing files, and failures; `--source <dir>`, `--data-root <path>`, and
-`--model <name>` override the defaults.
-
-## Prompt Builder
-
-Constructs the final prompt sent to the LLM. Persona definitions are **plain
-markdown, fully independent of code** — switching personas only changes which
-`.md` file is loaded. Two personas ship today:
-
-```text
-src/personas/hitesh.system.md
-src/personas/piyush.system.md
-```
-
-Feature module: `src/features/prompt-builder/`:
-
-- `load-persona.ts` — `loadPersona(persona)` reads `<persona>.system.md` and
-  returns the system prompt.
-- `load-context.ts` — `loadContext(persona, { query })` loads transcript chunks
-  from `src/data/chunks/<persona>/` and ranks them by simple lexical overlap.
-  **No vector search, no Qdrant** — this module is intentionally replaceable so
-  real semantic retrieval can drop in later without touching the builder.
-- `build-prompt.ts` — `buildPrompt({ persona, userMessage, conversationHistory })`
-  returns `{ systemPrompt, context, messages }`.
-
-The final prompt is: a `system` message (persona definition + a "Relevant Creator
-Context" block of the most relevant transcript chunks), followed by the recent
-conversation history (oldest first), then the current `user` message. The builder
-limits history to recent turns, de-duplicates repeated context, preserves message
-order, and is deterministic. A route only needs to call `buildPrompt` and forward
-`messages` to the model — it never builds prompts, calls OpenAI, or hardcodes
-persona text.
-
-```ts
-import { buildPrompt } from "@/features/prompt-builder";
-
-const { messages } = await buildPrompt({
-  persona: "hitesh", // or "piyush"
-  userMessage: "How does Redis caching work?",
-  conversationHistory: recentTurns, // [{ role, content }]
-});
-```
-
-## Persona Analyzer
-
-Given cleaned transcript chunks from a single creator, generates a strongly typed
-persona profile (communication style only) via the OpenAI API and writes a single
-`persona.json`. It does not chat, answer questions, or do retrieval.
-
-Feature module: `src/features/persona-analyzer/`
-(`analyzePersona(chunks, options)` returns a typed `Persona`).
-
-Set `OPENAI_API_KEY` (optionally `OPENAI_CHAT_MODEL`), then run:
-
-```bash
-OPENAI_API_KEY=... tsx scripts/analyze-persona.ts ./transcripts --creator "@chaiaurcode" --out persona.json
-```
-
-`<input>` is either a `.json` file (array of transcript strings) or a directory of `.txt`/`.md` transcript files.
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Dependencies](docs/DEPENDENCIES.md)
-- [Persona Safety](docs/PERSONA_SAFETY.md)
-
-## Intended Stack
-
-- Next.js App Router
-- TypeScript
-- Tailwind CSS
-- shadcn/ui
-- Node.js API routes
-- OpenAI API
-- Qdrant for vector search
-- Redis for conversation memory
-- PostgreSQL for metadata
-- LangGraph or a clean agent orchestration layer
-
+Private academic / submission project. Public educator content is used only as style reference from publicly available YouTube transcripts.
