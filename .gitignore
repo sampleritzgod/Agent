@@ -31,6 +31,8 @@ src/data/ingestion/raw/*
 !src/data/ingestion/raw/.gitkeep
 src/data/ingestion/normalized/*
 !src/data/ingestion/normalized/.gitkeep
+src/data/transcripts/*
+!src/data/transcripts/.gitkeep
 
 # Local tooling
 .DS_Store

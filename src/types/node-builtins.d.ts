@@ -17,6 +17,15 @@ declare module "node:fs/promises" {
   ): Promise<Dirent[]>;
   export function readdir(path: string): Promise<string[]>;
   export function stat(path: string): Promise<Stats>;
+  export function mkdir(
+    path: string,
+    options: { recursive: true },
+  ): Promise<string | undefined>;
+  export function writeFile(
+    path: string,
+    data: string,
+    encoding: "utf8",
+  ): Promise<void>;
 }
 
 declare module "node:path" {

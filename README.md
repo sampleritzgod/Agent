@@ -17,6 +17,7 @@ src/
     chat/              chat orchestration, memory, retrieval, prompt, OpenAI, HTTP
     persona-analyzer/  transcript -> persona profile (OpenAI)
     youtube-collector/ channel video metadata collection (YouTube Data API)
+    transcript-downloader/ download + store video transcripts (no AI)
   app/api/chat/        thin Next.js route delegating to the chat feature
   data/                persona packs + local ingestion staging
 scripts/               operational CLI entry points
@@ -47,6 +48,26 @@ Set `YOUTUBE_API_KEY` (see `.env.example`), then run:
 ```bash
 YOUTUBE_API_KEY=... tsx scripts/collect-youtube.ts https://www.youtube.com/@chaiaurcode
 ```
+
+## Transcript Downloader
+
+Downloads transcripts for collected YouTube videos and stores each as
+`src/data/transcripts/<persona>/<videoId>.json`, preserving per-segment
+timestamps. Batch-processed, resumable (skips already-downloaded files), and
+resilient: videos without transcripts are skipped and unexpected errors are
+recorded per-video without aborting the run. No LLM, embeddings, or analysis.
+
+Feature module: `src/features/transcript-downloader/`
+(`downloadTranscripts({ persona, videoIds, ... })` returns a summary of
+processed / skipped / failed videos). The default provider scrapes public
+caption tracks; a custom `provider` can be injected.
+
+```bash
+tsx scripts/download-transcripts.ts src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush
+```
+
+`<input>` is a JSON file that is either an array of video id strings or a
+`ChannelVideoCollection` (the output of `scripts/collect-youtube.ts`).
 
 ## Persona Analyzer
 
