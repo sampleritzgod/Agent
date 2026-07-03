@@ -66,7 +66,17 @@ export interface TranscriptDownloadSummary {
 export interface DownloadTranscriptsOptions {
   /** Persona id; transcripts are saved under `<dataRoot>/transcripts/<persona>/`. */
   persona: string;
+  /**
+   * Video ids to consider, in priority order (newest first is recommended, since
+   * only the first `maxVideos` are processed).
+   */
   videoIds: string[];
+  /**
+   * Maximum number of videos to process from the start of `videoIds`. Defaults
+   * to 20, which is enough for persona generation. Pass a large number to
+   * process all collected videos.
+   */
+  maxVideos?: number;
   /** Transcript source. Defaults to the built-in YouTube provider. */
   provider?: TranscriptProvider;
   /** Base data directory. Defaults to `<cwd>/src/data`. */

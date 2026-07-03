@@ -92,16 +92,20 @@ resilient: videos without transcripts are skipped and unexpected errors are
 recorded per-video without aborting the run. No LLM, embeddings, or analysis.
 
 Feature module: `src/features/transcript-downloader/`
-(`downloadTranscripts({ persona, videoIds, ... })` returns a summary of
-processed / skipped / failed videos). The default provider scrapes public
+(`downloadTranscripts({ persona, videoIds, maxVideos, ... })` returns a summary
+of processed / skipped / failed videos). The default provider scrapes public
 caption tracks; a custom `provider` can be injected.
 
+Videos are sampled **newest first** and capped by `maxVideos` (default **20**),
+which is enough for persona generation — pass a larger number to process more.
+
 ```bash
-tsx scripts/download-transcripts.ts src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush
+npm run download:transcripts -- src/data/ingestion/raw/youtube-UCxxxx.json --persona piyush --maxVideos 20
 ```
 
 `<input>` is a JSON file that is either an array of video id strings or a
-`ChannelVideoCollection` (the output of `scripts/collect-youtube.ts`).
+`ChannelVideoCollection` (the output of `scripts/collect-youtube.ts`). Collections
+are ordered by publish date (newest first) before the cap is applied.
 
 ## Persona Analyzer
 

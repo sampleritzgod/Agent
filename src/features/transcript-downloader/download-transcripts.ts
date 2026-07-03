@@ -12,6 +12,7 @@ import type {
 
 const DEFAULT_CONCURRENCY = 5;
 const MAX_CONCURRENCY = 20;
+const DEFAULT_MAX_VIDEOS = 20;
 
 function readCwd(): string {
   const runtime = globalThis as { process?: { cwd?: () => string } };
@@ -57,6 +58,11 @@ export async function downloadTranscripts(
     throw new Error("downloadTranscripts requires an array of videoIds.");
   }
 
+  const maxVideos = options.maxVideos ?? DEFAULT_MAX_VIDEOS;
+  if (!Number.isInteger(maxVideos) || maxVideos <= 0) {
+    throw new Error("`maxVideos` must be a positive integer.");
+  }
+
   const provider: TranscriptProvider = options.provider ?? fetchYouTubeTranscript;
   const dataRoot = options.dataRoot ?? path.join(readCwd(), "src", "data");
   const outputDir = path.join(dataRoot, "transcripts", persona);
@@ -66,7 +72,11 @@ export async function downloadTranscripts(
     Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY),
   );
 
-  const videoIds = [...new Set(options.videoIds.map((id) => id.trim()).filter(Boolean))];
+  // Dedupe (preserving order), then keep only the first `maxVideos`. Callers
+  // pass ids newest-first, so this samples the newest videos.
+  const videoIds = [
+    ...new Set(options.videoIds.map((id) => id.trim()).filter(Boolean)),
+  ].slice(0, maxVideos);
 
   await mkdir(outputDir, { recursive: true });
 
