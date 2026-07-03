@@ -131,8 +131,13 @@ export function ChatApp() {
           { id: createId(), role: "assistant", content: payload.message },
         ]);
       } catch (err) {
-        const message =
-          err instanceof Error && err.message
+        // A rejected fetch (TypeError) means the browser could not reach the
+        // server at all — surface a connection message rather than "Failed to
+        // fetch". Server-side errors already arrive as friendly messages.
+        const isNetworkFailure = err instanceof TypeError;
+        const message = isNetworkFailure
+          ? "Unable to connect to the AI service. Please check your connection and try again."
+          : err instanceof Error && err.message
             ? err.message
             : "Something went wrong. Please try again.";
         setError(message);

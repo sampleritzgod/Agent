@@ -15,6 +15,7 @@ const DEFAULT_TEMPERATURE = 0.7;
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_MAX_HISTORY = 10;
 const DEFAULT_MAX_CONTEXT_CHUNKS = 6;
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -73,7 +74,7 @@ export class ChatService {
     if (!config.apiKey?.trim()) {
       throw new ChatServiceError(
         "OPENAI_CONFIG_ERROR",
-        "OPENAI_API_KEY is not set.",
+        "The AI service is not configured.",
         500,
       );
     }
@@ -183,54 +184,178 @@ export class ChatService {
 
     devLog(`openai request started model=${this.config.model}`);
 
+    const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) {
+        controller.abort();
+      } else {
+        signal.addEventListener("abort", onExternalAbort);
+      }
+    }
+
     let response: Response;
     try {
       response = await fetchImpl(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        ...(signal ? { signal } : {}),
+        signal: controller.signal,
       });
     } catch (error) {
+      if (timedOut) {
+        devLog(`openai request timed out after ${timeoutMs}ms`);
+        throw new ChatServiceError(
+          "OPENAI_TIMEOUT",
+          "The AI took too long to respond. Please try again.",
+          504,
+          error,
+        );
+      }
+      devLog("openai request failed to connect");
       throw new ChatServiceError(
-        "OPENAI_REQUEST_FAILED",
-        "Failed to reach the OpenAI API.",
+        "OPENAI_NETWORK_ERROR",
+        "Unable to connect to the AI service. Please try again.",
         502,
         error,
       );
+    } finally {
+      clearTimeout(timer);
+      if (signal) {
+        signal.removeEventListener("abort", onExternalAbort);
+      }
     }
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => response.statusText);
-      devLog(`openai request failed status=${response.status}`);
-      throw new ChatServiceError(
-        "OPENAI_REQUEST_FAILED",
-        `OpenAI request failed (${response.status}): ${detail}`,
-        response.status >= 500 ? 502 : 400,
+      const { code, type, raw } = await this.readOpenAIError(response);
+      devLog(
+        `openai error status=${response.status} code=${code ?? type ?? "n/a"}`,
       );
+      throw this.mapHttpError(response.status, code, type, raw);
     }
 
-    const payload = (await response.json()) as ChatCompletionApiResponse;
-    const content = payload.choices?.[0]?.message?.content?.trim();
+    const payload = (await response.json().catch(() => null)) as
+      | ChatCompletionApiResponse
+      | null;
+    const content = payload?.choices?.[0]?.message?.content?.trim();
     if (!content) {
       throw new ChatServiceError(
         "OPENAI_EMPTY_RESPONSE",
-        "OpenAI returned an empty assistant message.",
+        "The AI returned an empty response. Please try again.",
         502,
       );
     }
 
     const usage: ChatTokenUsage = {
-      promptTokens: payload.usage?.prompt_tokens ?? 0,
-      completionTokens: payload.usage?.completion_tokens ?? 0,
-      totalTokens: payload.usage?.total_tokens ?? 0,
+      promptTokens: payload?.usage?.prompt_tokens ?? 0,
+      completionTokens: payload?.usage?.completion_tokens ?? 0,
+      totalTokens: payload?.usage?.total_tokens ?? 0,
     };
 
     return {
       message: content,
       usage,
-      model: payload.model ?? this.config.model,
+      model: payload?.model ?? this.config.model,
     };
+  }
+
+  /** Read and parse an OpenAI error body without exposing it to callers. */
+  private async readOpenAIError(
+    response: Response,
+  ): Promise<{ code?: string; type?: string; raw: string }> {
+    const raw = await response.text().catch(() => "");
+    if (!raw) {
+      return { raw: "" };
+    }
+    try {
+      const parsed = JSON.parse(raw) as {
+        error?: { code?: string; type?: string; message?: string };
+      };
+      return {
+        ...(parsed.error?.code ? { code: parsed.error.code } : {}),
+        ...(parsed.error?.type ? { type: parsed.error.type } : {}),
+        raw,
+      };
+    } catch {
+      return { raw };
+    }
+  }
+
+  /**
+   * Map an OpenAI non-2xx response to a user-friendly {@link ChatServiceError}.
+   * The raw OpenAI body is stored only as `cause`/`openaiCode` for development
+   * logging — it is never surfaced in the user-facing message.
+   */
+  private mapHttpError(
+    status: number,
+    code: string | undefined,
+    type: string | undefined,
+    raw: string,
+  ): ChatServiceError {
+    const oaiCode = code ?? type;
+
+    if (status === 401 || status === 403) {
+      return new ChatServiceError(
+        "OPENAI_INVALID_API_KEY",
+        "The AI service is not configured correctly.",
+        500,
+        raw,
+        oaiCode,
+      );
+    }
+
+    if (code === "model_not_found" || (status === 404 && !oaiCode) || status === 404) {
+      return new ChatServiceError(
+        "OPENAI_MODEL_ERROR",
+        "The AI model is currently unavailable. Please try again later.",
+        502,
+        raw,
+        oaiCode,
+      );
+    }
+
+    if (status === 429) {
+      if (code === "insufficient_quota" || type === "insufficient_quota") {
+        return new ChatServiceError(
+          "OPENAI_QUOTA_EXCEEDED",
+          "The AI service has reached its usage limit. Please try again later.",
+          503,
+          raw,
+          oaiCode,
+        );
+      }
+      return new ChatServiceError(
+        "OPENAI_RATE_LIMITED",
+        "The AI service is currently busy. Please wait a few seconds and try again.",
+        429,
+        raw,
+        oaiCode,
+      );
+    }
+
+    if (status >= 500) {
+      return new ChatServiceError(
+        "OPENAI_REQUEST_FAILED",
+        "The AI service is temporarily unavailable. Please try again.",
+        502,
+        raw,
+        oaiCode,
+      );
+    }
+
+    return new ChatServiceError(
+      "OPENAI_REQUEST_FAILED",
+      "Something went wrong while generating the response.",
+      502,
+      raw,
+      oaiCode,
+    );
   }
 }
 
@@ -241,7 +366,7 @@ export function createChatService(config: Partial<ChatServiceConfig> = {}): Chat
   if (!apiKey) {
     throw new ChatServiceError(
       "OPENAI_CONFIG_ERROR",
-      "OPENAI_API_KEY is not set.",
+      "The AI service is not configured.",
       500,
     );
   }
@@ -270,6 +395,9 @@ export function createChatService(config: Partial<ChatServiceConfig> = {}): Chat
     maxContextChunks:
       config.maxContextChunks ??
       readPositiveInt(env, "OPENAI_CHAT_MAX_CONTEXT_CHUNKS", DEFAULT_MAX_CONTEXT_CHUNKS),
+    timeoutMs:
+      config.timeoutMs ??
+      readPositiveInt(env, "OPENAI_CHAT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
     fetchImpl: config.fetchImpl ?? fetch,
   });
 }

@@ -28,10 +28,31 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
-function errorResponse(error: ChatServiceError, requestId: string): Response {
-  if (error.status >= 500) {
-    console.error(`[api:${requestId}]`, error);
+function isDevelopment(): boolean {
+  const env =
+    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+      ?.env ?? {};
+  return env.APP_ENV === "development" || env.NODE_ENV === "development";
+}
+
+/**
+ * Log detailed diagnostics for a failed request — only in development, so raw
+ * OpenAI errors and stack traces never reach production logs or the frontend.
+ */
+function logError(error: ChatServiceError, requestId: string): void {
+  if (!isDevelopment()) {
+    return;
   }
+  console.error(
+    `[api:${requestId}] type=${error.code} status=${error.status} openaiCode=${
+      error.openaiCode ?? "n/a"
+    }`,
+    error.cause ?? error.message,
+  );
+}
+
+function errorResponse(error: ChatServiceError, requestId: string): Response {
+  logError(error, requestId);
   const body: ApiErrorBody = {
     error: { code: error.code, message: error.message, requestId },
   };
@@ -128,11 +149,10 @@ function normalizeError(error: unknown, requestId: string): Response {
   if (error instanceof ChatServiceError) {
     return errorResponse(error, requestId);
   }
-  console.error(`[api:${requestId}]`, error);
   return errorResponse(
     new ChatServiceError(
       "OPENAI_REQUEST_FAILED",
-      "The chat request could not be completed.",
+      "Something went wrong while generating the response.",
       500,
       error,
     ),

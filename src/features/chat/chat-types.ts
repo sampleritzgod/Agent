@@ -35,6 +35,8 @@ export interface ChatServiceConfig {
   maxHistoryMessages?: number;
   /** Max transcript chunks included as creator context. Defaults to 6. */
   maxContextChunks?: number;
+  /** Abort the OpenAI request after this many ms. Defaults to 60000. */
+  timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -42,6 +44,12 @@ export type ChatErrorCode =
   | "INVALID_REQUEST"
   | "PERSONA_NOT_FOUND"
   | "OPENAI_CONFIG_ERROR"
+  | "OPENAI_INVALID_API_KEY"
+  | "OPENAI_RATE_LIMITED"
+  | "OPENAI_QUOTA_EXCEEDED"
+  | "OPENAI_MODEL_ERROR"
+  | "OPENAI_TIMEOUT"
+  | "OPENAI_NETWORK_ERROR"
   | "OPENAI_REQUEST_FAILED"
   | "OPENAI_EMPTY_RESPONSE";
 
@@ -55,6 +63,8 @@ export class ChatServiceError extends Error {
     message: string,
     public readonly status: number = 500,
     public readonly cause?: unknown,
+    /** Underlying OpenAI error code/type, for development logging only. */
+    public readonly openaiCode?: string,
   ) {
     super(message);
     this.name = "ChatServiceError";
