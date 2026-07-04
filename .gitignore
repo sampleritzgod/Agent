@@ -26,9 +26,11 @@ coverage/
 playwright-report/
 test-results/
 
-# Collected ingestion data (keep structure, ignore content)
-src/data/ingestion/raw/*
-!src/data/ingestion/raw/.gitkeep
+# Collected ingestion data.
+# NOTE: chunks and ingestion/raw are READ AT RUNTIME by the deployed chat API
+# (transcript context + video recommendations). This app has no database, so
+# these must be committed for the Vercel deployment to work. The intermediate
+# pipeline artifacts below are build-time only and stay ignored.
 src/data/ingestion/normalized/*
 !src/data/ingestion/normalized/.gitkeep
 src/data/transcripts/*
@@ -37,8 +39,6 @@ src/data/cleaned-transcripts/*
 !src/data/cleaned-transcripts/.gitkeep
 src/data/transliterated-transcripts/*
 !src/data/transliterated-transcripts/.gitkeep
-src/data/chunks/*
-!src/data/chunks/.gitkeep
 src/data/embeddings/*
 !src/data/embeddings/.gitkeep
 
