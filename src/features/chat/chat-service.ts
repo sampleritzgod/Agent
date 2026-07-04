@@ -1,10 +1,5 @@
 import { buildPrompt } from "@/features/prompt-builder";
 import { loadPersona } from "@/features/prompt-builder/load-persona";
-import {
-  detectVideoIntent,
-  formatVideoBlock,
-  recommendVideos,
-} from "@/features/video-recommender";
 
 import type { PromptMessage } from "@/features/prompt-builder";
 
@@ -155,12 +150,18 @@ export class ChatService {
     persona: string,
     message: string,
   ): Promise<PromptMessage[]> {
-    if (!detectVideoIntent(message)) {
-      return messages;
-    }
-
     let block: string;
     try {
+      // Lazy-load the retrieval layer so the core chat path never depends on
+      // this module resolving/evaluating — any failure here leaves chat intact.
+      const { detectVideoIntent, formatVideoBlock, recommendVideos } = await import(
+        "@/features/video-recommender"
+      );
+
+      if (!detectVideoIntent(message)) {
+        return messages;
+      }
+
       const recommendations = await recommendVideos({ persona, query: message, limit: 3 });
       block = formatVideoBlock(recommendations);
       devLog(`video intent detected: injecting ${recommendations.length} recommendation(s)`);
