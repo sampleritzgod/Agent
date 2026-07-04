@@ -1,5 +1,12 @@
 import { buildPrompt } from "@/features/prompt-builder";
 import { loadPersona } from "@/features/prompt-builder/load-persona";
+import {
+  detectVideoIntent,
+  formatVideoBlock,
+  recommendVideos,
+} from "@/features/video-recommender";
+
+import type { PromptMessage } from "@/features/prompt-builder";
 
 import type {
   ChatRequest,
@@ -119,13 +126,62 @@ export class ChatService {
       `prompt built: ${messages.length} messages, ${usedChunks.length} context chunk(s)`,
     );
 
-    const completion = await this.callOpenAI(messages, signal);
+    // Lightweight retrieval layer: if the user is asking for videos/tutorials,
+    // inject creator-library recommendations into the system prompt. This never
+    // blocks the chat — any failure just falls back to the original prompt.
+    const finalMessages = await this.maybeInjectVideoRecommendations(
+      messages,
+      persona,
+      message,
+    );
+
+    const completion = await this.callOpenAI(finalMessages, signal);
 
     devLog(
       `response model=${completion.model} tokens=${completion.usage.totalTokens}`,
     );
 
     return completion;
+  }
+
+  /**
+   * When the user asks for videos/tutorials/playlists/resources, append a video
+   * recommendations block (sourced from the local ingestion JSON) to the system
+   * message so the persona recommends their own videos. Returns the messages
+   * unchanged when there is no such intent, or if retrieval fails.
+   */
+  private async maybeInjectVideoRecommendations(
+    messages: PromptMessage[],
+    persona: string,
+    message: string,
+  ): Promise<PromptMessage[]> {
+    if (!detectVideoIntent(message)) {
+      return messages;
+    }
+
+    let block: string;
+    try {
+      const recommendations = await recommendVideos({ persona, query: message, limit: 3 });
+      block = formatVideoBlock(recommendations);
+      devLog(`video intent detected: injecting ${recommendations.length} recommendation(s)`);
+    } catch (error) {
+      devLog(
+        `video recommendation lookup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return messages;
+    }
+
+    if (!block) {
+      return messages;
+    }
+
+    const [system, ...rest] = messages;
+    if (!system || system.role !== "system") {
+      return messages;
+    }
+    return [{ role: "system", content: `${system.content}\n\n${block}` }, ...rest];
   }
 
   /** Restrict chat to the integrated persona set (Hitesh / Piyush). */
