@@ -205,6 +205,8 @@ body {
 }
 
 .ch-history-item {
+  display: block;
+  width: 100%;
   text-align: left;
   font: inherit;
   color: inherit;
@@ -212,7 +214,8 @@ body {
   background: var(--paper);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 0.6rem 0.7rem;
+  padding: 0.7rem;
+  overflow: hidden;
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
@@ -235,7 +238,17 @@ body {
   font-size: 0.82rem;
 }
 
+/* Name truncates on one line so the badge never gets pushed or overlapped. */
+.ch-history-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ch-history-count {
+  flex-shrink: 0;
   font-size: 0.68rem;
   border: 1.5px solid var(--border);
   border-radius: 999px;
@@ -243,13 +256,20 @@ body {
   background: var(--pastel-pink);
 }
 
+/* Preview: max 2 lines, ellipsis, wraps long words, fixed reserved height. */
 .ch-history-snippet {
   margin-top: 4px;
   font-size: 0.72rem;
+  line-height: 1.3;
   color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-height: calc(1.3em * 2);
 }
 
 .ch-history-empty {

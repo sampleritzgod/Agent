@@ -295,7 +295,7 @@ export function ChatApp() {
                   className={`ch-history-item${persona === id ? " active" : ""}`}
                 >
                   <span className="ch-history-top">
-                    {label.name}
+                    <span className="ch-history-name">{label.name}</span>
                     <span className="ch-history-count">
                       {convo.length === 0 ? "new" : `${convo.length}`}
                     </span>
