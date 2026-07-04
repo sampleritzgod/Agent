@@ -1,8 +1,8 @@
 import "./globals.css";
-import "highlight.js/styles/github-dark.css";
+import "highlight.js/styles/github.css";
 
 export const metadata = {
-  title: "AI Persona Chat",
+  title: "AI Persona · CampusHub",
   description: "Simulated tech educator personas based on public content.",
 };
 

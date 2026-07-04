@@ -29,14 +29,25 @@ interface ChatApiError {
   error?: { code?: string; message?: string };
 }
 
-const PERSONA_LABELS: Record<SupportedPersona, { name: string; subtitle: string }> = {
+interface PersonaLabel {
+  name: string;
+  subtitle: string;
+  initials: string;
+  accent: "yellow" | "green";
+}
+
+const PERSONA_LABELS: Record<SupportedPersona, PersonaLabel> = {
   hitesh: {
     name: "Hitesh Choudhary",
-    subtitle: "Warm Hinglish teaching style · full-stack, DevOps, career guidance",
+    subtitle: "Warm Hinglish · full-stack, DevOps, career",
+    initials: "HC",
+    accent: "yellow",
   },
   piyush: {
     name: "Piyush Garg",
-    subtitle: "Clear English explanations · React, Node.js, system design",
+    subtitle: "Practical Hinglish · React, Node.js, system design",
+    initials: "PG",
+    accent: "green",
   },
 };
 
@@ -76,6 +87,8 @@ export function ChatApp() {
   const [input, setInput] = useState("");
   // Which persona currently has a request in flight (null when idle).
   const [loadingPersona, setLoadingPersona] = useState<SupportedPersona | null>(null);
+  // Mobile sidebar drawer visibility.
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -111,6 +124,8 @@ export function ChatApp() {
 
   const handlePersonaChange = useCallback(
     (next: SupportedPersona) => {
+      // Close the mobile drawer on selection; histories are always preserved.
+      setDrawerOpen(false);
       if (next === persona) return;
       // Only switch the active persona — histories are preserved and restored.
       setPersona(next);
@@ -202,127 +217,224 @@ export function ChatApp() {
     }
   };
 
-  const activeName = PERSONA_LABELS[persona].name;
+  const activeLabel = PERSONA_LABELS[persona];
+  const activeName = activeLabel.name;
 
   return (
-    <div className="chat-shell">
-      <header className="chat-header">
-        <h1 className="chat-title">AI Persona Chat</h1>
-        <p className="chat-subtitle">
-          Ask a technical question — the selected educator&apos;s style and transcript
-          context are applied automatically.
-        </p>
-        <div className="persona-row" role="radiogroup" aria-label="Select persona">
-          {SUPPORTED_PERSONAS.map((id) => {
-            const selected = persona === id;
-            const label = PERSONA_LABELS[id];
-            const content = (
-              <>
-                <span className="persona-name">{label.name}</span>
-                <span className="persona-hint">{label.subtitle}</span>
-              </>
-            );
-            return selected ? (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked="true"
-                onClick={() => handlePersonaChange(id)}
-                className="persona-card selected"
-              >
-                {content}
-              </button>
-            ) : (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked="false"
-                onClick={() => handlePersonaChange(id)}
-                className="persona-card"
-              >
-                {content}
-              </button>
-            );
-          })}
-        </div>
-      </header>
-
-      <section className="chat-thread" aria-live="polite">
-        {messages.length === 0 && loadingPersona !== persona && (
-          <p className="chat-empty">
-            Chatting as <strong>{activeName}</strong>.
-            <br />
-            Try &quot;How does Redis caching work?&quot; or &quot;Explain React hooks with an
-            example.&quot;
-          </p>
-        )}
-
-        {messages.map((msg) => (
-          <div key={msg.id} className={`chat-row ${msg.role}`}>
-            <div className="bubble">
-              <span className="bubble-role">{msg.role === "user" ? "You" : activeName}</span>
-              {msg.role === "assistant" ? (
-                <AssistantMarkdown content={msg.content} />
-              ) : (
-                <div className="user-text">{msg.content}</div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loadingPersona === persona && (
-          <div className="chat-row assistant">
-            <div className="bubble">
-              <span className="bubble-role">{activeName}</span>
-              <span className="thinking">
-                Thinking
-                <span className="thinking-dots" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div ref={bottomRef} />
-      </section>
-
-      {error && (
-        <div className="chat-error" role="alert">
-          <span>{error}</span>
-          {lastFailedRef.current[persona] && (
-            <button type="button" className="retry-btn" onClick={retry} disabled={loading}>
-              Retry
-            </button>
-          )}
-        </div>
+    <div className="ch-app">
+      {drawerOpen && (
+        <div
+          className="ch-scrim"
+          role="presentation"
+          onClick={() => setDrawerOpen(false)}
+        />
       )}
 
-      <footer className="composer">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={`Message ${activeName}…`}
-          rows={1}
-          disabled={loading}
-          aria-label="Message"
-        />
-        <button
-          type="button"
-          className="send-btn"
-          onClick={sendMessage}
-          disabled={loading || !input.trim()}
-        >
-          {loading ? "…" : "Send"}
-        </button>
-      </footer>
-      <p className="composer-hint">Enter to send · Shift + Enter for a new line</p>
+      <aside className="ch-sidebar" data-open={drawerOpen ? "true" : "false"}>
+        <div className="ch-logo">
+          <span className="ch-logo-mark" aria-hidden="true">
+            📓
+          </span>
+          CampusHub
+        </div>
+
+        <div>
+          <h2 className="ch-side-label">AI Persona</h2>
+          <div className="ch-persona-list" role="radiogroup" aria-label="Select persona">
+            {SUPPORTED_PERSONAS.map((id) => {
+              const label = PERSONA_LABELS[id];
+              const selected = persona === id;
+              const inner = (
+                <>
+                  <span className="ch-avatar" data-accent={label.accent} aria-hidden="true">
+                    {label.initials}
+                  </span>
+                  <span className="ch-persona-text">
+                    <span className="ch-persona-name">{label.name}</span>
+                    <span className="ch-persona-hint">{label.subtitle}</span>
+                  </span>
+                </>
+              );
+              return selected ? (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked="true"
+                  data-accent={label.accent}
+                  onClick={() => handlePersonaChange(id)}
+                  className="ch-persona selected"
+                >
+                  {inner}
+                </button>
+              ) : (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-accent={label.accent}
+                  onClick={() => handlePersonaChange(id)}
+                  className="ch-persona"
+                >
+                  {inner}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <h2 className="ch-side-label">Conversation History</h2>
+          <div className="ch-history">
+            {SUPPORTED_PERSONAS.map((id) => {
+              const label = PERSONA_LABELS[id];
+              const convo = histories[id];
+              const last = convo[convo.length - 1];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handlePersonaChange(id)}
+                  className={`ch-history-item${persona === id ? " active" : ""}`}
+                >
+                  <span className="ch-history-top">
+                    {label.name}
+                    <span className="ch-history-count">
+                      {convo.length === 0 ? "new" : `${convo.length}`}
+                    </span>
+                  </span>
+                  <span className="ch-history-snippet">
+                    {last ? last.content : <em className="ch-history-empty">No messages yet</em>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
+
+      <div className="ch-main">
+        <header className="ch-header">
+          <button
+            type="button"
+            className="ch-icon-btn ch-hamburger"
+            aria-label="Open menu"
+            onClick={() => setDrawerOpen(true)}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
+          <div className="ch-header-titles">
+            <h1 className="ch-title">AI Persona</h1>
+            <p className="ch-subtitle">
+              Chat with Hitesh Choudhary and Piyush Garg using transcript-grounded AI.
+            </p>
+          </div>
+
+          <div className="ch-header-right">
+            <span
+              className="ch-avatar ch-header-avatar"
+              data-accent={activeLabel.accent}
+              title={activeName}
+              aria-label={`Current persona: ${activeName}`}
+            >
+              {activeLabel.initials}
+            </span>
+            <button type="button" className="ch-icon-btn" aria-label="Settings">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <section className="ch-thread" aria-live="polite">
+          {messages.length === 0 && loadingPersona !== persona && (
+            <div className="ch-empty">
+              <p className="ch-empty-note">
+                You&apos;re chatting with <strong>{activeName}</strong>.
+                <br />
+                Try &quot;How does Redis caching work?&quot; or &quot;Explain React hooks with an
+                example.&quot;
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`ch-row ${msg.role}`}
+              data-accent={activeLabel.accent}
+            >
+              <div className="ch-msg">
+                <span className="ch-msg-role">
+                  {msg.role === "user" ? "You" : activeName}
+                </span>
+                {msg.role === "assistant" ? (
+                  <AssistantMarkdown content={msg.content} />
+                ) : (
+                  <div className="user-text">{msg.content}</div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {loadingPersona === persona && (
+            <div className="ch-row assistant" data-accent={activeLabel.accent}>
+              <div className="ch-msg">
+                <span className="ch-msg-role">{activeName}</span>
+                <span className="ch-thinking">
+                  Thinking
+                  <span className="ch-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </section>
+
+        {error && (
+          <div className="ch-error" role="alert">
+            <span>{error}</span>
+            {lastFailedRef.current[persona] && (
+              <button type="button" className="ch-retry" onClick={retry} disabled={loading}>
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        <footer className="ch-input">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={`Message ${activeName}…`}
+            rows={1}
+            disabled={loading}
+            aria-label="Message"
+          />
+          <button
+            type="button"
+            className="ch-send"
+            onClick={sendMessage}
+            disabled={loading || !input.trim()}
+          >
+            {loading ? "…" : "Send"}
+          </button>
+        </footer>
+        <p className="ch-hint">Enter to send · Shift + Enter for a new line</p>
+      </div>
     </div>
   );
 }
