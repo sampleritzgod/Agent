@@ -44,6 +44,14 @@ function createId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `msg_${Date.now()}_${Math.random()}`;
 }
 
+/** Build a per-persona record with an independent initial value for each key. */
+function perPersona<T>(init: () => T): Record<SupportedPersona, T> {
+  return SUPPORTED_PERSONAS.reduce((acc, id) => {
+    acc[id] = init();
+    return acc;
+  }, {} as Record<SupportedPersona, T>);
+}
+
 function AssistantMarkdown({ content }: { content: string }) {
   return (
     <div className="md">
@@ -56,21 +64,42 @@ function AssistantMarkdown({ content }: { content: string }) {
 
 export function ChatApp() {
   const [persona, setPersona] = useState<SupportedPersona>("hitesh");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Each persona keeps its own conversation, error, and last-failed message so
+  // switching personas never deletes or mixes histories — it just reveals the
+  // other persona's independent state, and switching back restores it.
+  const [histories, setHistories] = useState<Record<SupportedPersona, ChatMessage[]>>(
+    () => perPersona<ChatMessage[]>(() => []),
+  );
+  const [errors, setErrors] = useState<Record<SupportedPersona, string | null>>(() =>
+    perPersona<string | null>(() => null),
+  );
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Which persona currently has a request in flight (null when idle).
+  const [loadingPersona, setLoadingPersona] = useState<SupportedPersona | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Guards against duplicate in-flight submissions even before state settles.
   const inFlightRef = useRef(false);
-  // The text of the last failed send, used by the retry button.
-  const lastFailedRef = useRef<string | null>(null);
+  // Per-persona text of the last failed send, used by the retry button.
+  const lastFailedRef = useRef<Record<SupportedPersona, string | null>>(
+    perPersona<string | null>(() => null),
+  );
+
+  const messages = histories[persona];
+  const error = errors[persona];
+  const loading = loadingPersona !== null;
+
+  const updateHistory = useCallback(
+    (target: SupportedPersona, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+      setHistories((prev) => ({ ...prev, [target]: updater(prev[target]) }));
+    },
+    [],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loadingPersona]);
 
   // Auto-grow the textarea up to its max-height.
   useLayoutEffect(() => {
@@ -83,10 +112,8 @@ export function ChatApp() {
   const handlePersonaChange = useCallback(
     (next: SupportedPersona) => {
       if (next === persona) return;
+      // Only switch the active persona — histories are preserved and restored.
       setPersona(next);
-      setMessages([]);
-      setError(null);
-      lastFailedRef.current = null;
     },
     [persona],
   );
@@ -98,26 +125,29 @@ export function ChatApp() {
         return;
       }
 
+      // Bind this request to the persona active at send time, so a response
+      // always lands in the right conversation even if the user switches.
+      const target = persona;
+
       inFlightRef.current = true;
-      setError(null);
-      lastFailedRef.current = null;
-      setLoading(true);
+      setErrors((prev) => ({ ...prev, [target]: null }));
+      lastFailedRef.current[target] = null;
+      setLoadingPersona(target);
 
       const userMessage: ChatMessage = { id: createId(), role: "user", content: trimmed };
 
-      // History is everything before this new message.
-      const conversationHistory: ConversationTurn[] = messages.map(({ role, content }) => ({
-        role,
-        content,
-      }));
+      // History is this persona's conversation before the new message.
+      const conversationHistory: ConversationTurn[] = histories[target].map(
+        ({ role, content }) => ({ role, content }),
+      );
 
-      setMessages((prev) => [...prev, userMessage]);
+      updateHistory(target, (prev) => [...prev, userMessage]);
 
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ persona, message: trimmed, conversationHistory }),
+          body: JSON.stringify({ persona: target, message: trimmed, conversationHistory }),
         });
 
         const payload = (await response.json()) as ChatApiResponse & ChatApiError;
@@ -126,7 +156,7 @@ export function ChatApp() {
           throw new Error(payload.error?.message ?? "Chat request failed.");
         }
 
-        setMessages((prev) => [
+        updateHistory(target, (prev) => [
           ...prev,
           { id: createId(), role: "assistant", content: payload.message },
         ]);
@@ -140,16 +170,16 @@ export function ChatApp() {
           : err instanceof Error && err.message
             ? err.message
             : "Something went wrong. Please try again.";
-        setError(message);
-        lastFailedRef.current = trimmed;
+        setErrors((prev) => ({ ...prev, [target]: message }));
+        lastFailedRef.current[target] = trimmed;
         // Roll back the optimistic user message so retry doesn't duplicate it.
-        setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+        updateHistory(target, (prev) => prev.filter((m) => m.id !== userMessage.id));
       } finally {
         inFlightRef.current = false;
-        setLoading(false);
+        setLoadingPersona(null);
       }
     },
-    [messages, persona],
+    [histories, persona, updateHistory],
   );
 
   const sendMessage = useCallback(() => {
@@ -159,11 +189,11 @@ export function ChatApp() {
   }, [input, submit]);
 
   const retry = useCallback(() => {
-    const text = lastFailedRef.current;
+    const text = lastFailedRef.current[persona];
     if (text) {
       void submit(text);
     }
-  }, [submit]);
+  }, [persona, submit]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -186,17 +216,33 @@ export function ChatApp() {
           {SUPPORTED_PERSONAS.map((id) => {
             const selected = persona === id;
             const label = PERSONA_LABELS[id];
-            return (
+            const content = (
+              <>
+                <span className="persona-name">{label.name}</span>
+                <span className="persona-hint">{label.subtitle}</span>
+              </>
+            );
+            return selected ? (
               <button
                 key={id}
                 type="button"
                 role="radio"
-                aria-checked={selected ? "true" : "false"}
+                aria-checked="true"
                 onClick={() => handlePersonaChange(id)}
-                className={`persona-card${selected ? " selected" : ""}`}
+                className="persona-card selected"
               >
-                <span className="persona-name">{label.name}</span>
-                <span className="persona-hint">{label.subtitle}</span>
+                {content}
+              </button>
+            ) : (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked="false"
+                onClick={() => handlePersonaChange(id)}
+                className="persona-card"
+              >
+                {content}
               </button>
             );
           })}
@@ -204,7 +250,7 @@ export function ChatApp() {
       </header>
 
       <section className="chat-thread" aria-live="polite">
-        {messages.length === 0 && !loading && (
+        {messages.length === 0 && loadingPersona !== persona && (
           <p className="chat-empty">
             Chatting as <strong>{activeName}</strong>.
             <br />
@@ -226,7 +272,7 @@ export function ChatApp() {
           </div>
         ))}
 
-        {loading && (
+        {loadingPersona === persona && (
           <div className="chat-row assistant">
             <div className="bubble">
               <span className="bubble-role">{activeName}</span>
@@ -248,7 +294,7 @@ export function ChatApp() {
       {error && (
         <div className="chat-error" role="alert">
           <span>{error}</span>
-          {lastFailedRef.current && (
+          {lastFailedRef.current[persona] && (
             <button type="button" className="retry-btn" onClick={retry} disabled={loading}>
               Retry
             </button>
