@@ -31,7 +31,6 @@ interface ChatApiError {
 
 interface PersonaLabel {
   name: string;
-  subtitle: string;
   initials: string;
   accent: "yellow" | "green";
 }
@@ -39,13 +38,11 @@ interface PersonaLabel {
 const PERSONA_LABELS: Record<SupportedPersona, PersonaLabel> = {
   hitesh: {
     name: "Hitesh Choudhary",
-    subtitle: "Warm Hinglish · full-stack, DevOps, career",
     initials: "HC",
     accent: "yellow",
   },
   piyush: {
     name: "Piyush Garg",
-    subtitle: "Practical Hinglish · React, Node.js, system design",
     initials: "PG",
     accent: "green",
   },
@@ -235,7 +232,7 @@ export function ChatApp() {
           <span className="ch-logo-mark" aria-hidden="true">
             📓
           </span>
-          CampusHub
+          Persona Agent
         </div>
 
         <div>
@@ -251,7 +248,6 @@ export function ChatApp() {
                   </span>
                   <span className="ch-persona-text">
                     <span className="ch-persona-name">{label.name}</span>
-                    <span className="ch-persona-hint">{label.subtitle}</span>
                   </span>
                 </>
               );
@@ -328,10 +324,8 @@ export function ChatApp() {
           </button>
 
           <div className="ch-header-titles">
-            <h1 className="ch-title">AI Persona</h1>
-            <p className="ch-subtitle">
-              Chat with Hitesh Choudhary and Piyush Garg using transcript-grounded AI.
-            </p>
+            <h1 className="ch-title">Persona Agent</h1>
+            <p className="ch-subtitle">Talk to Hitesh Choudhary or Piyush Garg.</p>
           </div>
 
           <div className="ch-header-right">
@@ -343,12 +337,6 @@ export function ChatApp() {
             >
               {activeLabel.initials}
             </span>
-            <button type="button" className="ch-icon-btn" aria-label="Settings">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
           </div>
         </header>
 

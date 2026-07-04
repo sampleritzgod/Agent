@@ -2,7 +2,7 @@ import "./globals.css";
 import "highlight.js/styles/github.css";
 
 export const metadata = {
-  title: "AI Persona · CampusHub",
+  title: "Persona Agent",
   description: "Simulated tech educator personas based on public content.",
 };
 
