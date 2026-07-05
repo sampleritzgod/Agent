@@ -170,11 +170,61 @@ Edit `.env` and set at minimum:
 | `OPENAI_EMBEDDING_MODEL` | No | Embedding model for `generate:embeddings` |
 | `YOUTUBE_API_KEY` | Yes (collector) | YouTube Data API v3 key |
 | `YOUTUBE_API_BASE_URL` | No | YouTube API base URL |
+| `UPSTASH_REDIS_REST_URL` | No (prod recommended) | Upstash Redis REST URL for IP rate limiting |
+| `UPSTASH_REDIS_REST_TOKEN` | No (prod recommended) | Upstash Redis REST token |
+| `RATE_LIMIT_REDIS_PREFIX` | No | Redis key prefix for rate-limit counters (default `persona-chat`) |
 | `APP_ENV` | No | `development` or `production` |
 
 See `.env.example` for the full list including optional future infrastructure (Redis, Qdrant, PostgreSQL).
 
 > **Note:** `tsconfig.json` configures TypeScript only. Secrets are loaded from `.env` at runtime by Next.js and `tsx --env-file=.env` for scripts.
+
+---
+
+## Rate Limiting (Production)
+
+`POST /api/chat` is protected with **IP-based rate limiting** via [Upstash Redis](https://upstash.com/) and `@upstash/ratelimit` — the recommended approach for Vercel serverless deployments.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Requests per IP | **10** | Maximum chat requests allowed per hour |
+| Window | **1 hour** | Sliding window (not a hard hourly reset) |
+| Scope | `/api/chat` only | Persona switching and UI are unaffected |
+
+When the limit is exceeded the API returns **HTTP 429**:
+
+```json
+{
+  "error": "RATE_LIMIT_EXCEEDED",
+  "message": "Too many requests. Please try again later."
+}
+```
+
+The chat UI shows this message in the existing error banner and keeps conversation history intact (retry works once the window resets).
+
+### Configure Upstash on Vercel
+
+1. Create a free [Upstash Redis](https://console.upstash.com/) database.
+2. Copy the **REST URL** and **REST Token** from the database details page.
+3. Add them to your Vercel project (Settings → Environment Variables):
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+4. Redeploy. Rate limiting activates automatically — no code changes needed.
+
+For local development, omit these variables. The server logs a one-time warning and **disables rate limiting** so chat works without Redis.
+
+### Change request limits
+
+Edit the constants at the top of `src/features/chat/rate-limit.ts`:
+
+```typescript
+export const CHAT_RATE_LIMIT_REQUESTS = 10;   // max requests per IP
+export const CHAT_RATE_LIMIT_WINDOW = "1 h";  // sliding window duration
+```
+
+Supported window strings follow Upstash Ratelimit (e.g. `"30 s"`, `"10 m"`, `"1 h"`, `"1 d"`). Redeploy after changing.
+
+Optional: set `RATE_LIMIT_REDIS_PREFIX` to isolate counters when sharing an Upstash database across environments.
 
 ---
 

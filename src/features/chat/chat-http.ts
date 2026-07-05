@@ -1,4 +1,5 @@
 import { createChatService, getChatService } from "./chat-service";
+import { enforceChatRateLimit } from "./rate-limit";
 import type { ChatRequest, ChatResponse, ConversationTurn } from "./chat-types";
 import { ChatServiceError } from "./chat-types";
 
@@ -163,9 +164,18 @@ function normalizeError(error: unknown, requestId: string): Response {
 /**
  * Thin HTTP adapter for POST /api/chat. Parses the request, delegates to
  * {@link ChatService}, and returns JSON — no business logic here.
+ *
+ * Rate limiting runs first via {@link enforceChatRateLimit} so abusive traffic
+ * is rejected before OpenAI is called.
  */
 export async function handleChatPost(request: Request): Promise<Response> {
   const requestId = createRequestId();
+
+  // IP-based rate limit — returns 429 before any chat processing when exceeded.
+  const rateLimit = await enforceChatRateLimit(request);
+  if (rateLimit.limited && rateLimit.response) {
+    return rateLimit.response;
+  }
 
   try {
     const chatRequest = await parseChatRequest(request);

@@ -15,6 +15,8 @@
     "analyze:persona": "tsx --env-file=.env scripts/analyze-persona.ts"
   },
   "dependencies": {
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "highlight.js": "^11.11.1",
     "next": "^15.3.3",
     "react": "^19.1.0",

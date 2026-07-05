@@ -26,7 +26,20 @@ interface ChatApiResponse {
 }
 
 interface ChatApiError {
-  error?: { code?: string; message?: string };
+  /** Standard nested error shape from ChatServiceError. */
+  error?: { code?: string; message?: string } | string;
+  /** Top-level message used by rate-limit responses (429). */
+  message?: string;
+}
+
+function chatErrorMessage(payload: ChatApiError, fallback: string): string {
+  if (payload.error === "RATE_LIMIT_EXCEEDED" && typeof payload.message === "string") {
+    return payload.message;
+  }
+  if (typeof payload.error === "object" && payload.error?.message) {
+    return payload.error.message;
+  }
+  return fallback;
 }
 
 interface PersonaLabel {
@@ -165,7 +178,7 @@ export function ChatApp() {
         const payload = (await response.json()) as ChatApiResponse & ChatApiError;
 
         if (!response.ok) {
-          throw new Error(payload.error?.message ?? "Chat request failed.");
+          throw new Error(chatErrorMessage(payload, "Chat request failed."));
         }
 
         updateHistory(target, (prev) => [
