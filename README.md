@@ -1,5 +1,7 @@
 # AI Persona Chat
 
+live Project link : [personaAi](https://agent-eight-indol.vercel.app/)
+
 An AI-powered educational chat application that simulates the public teaching styles of **Hitesh Choudhary** and **Piyush Garg**. Responses are generated from persona definitions, retrieved transcript context, and conversation history — always framed as AI simulations, never as the real creators.
 
 ---
